@@ -20,7 +20,7 @@ namespace AsdRcSlab
     public static class DrawingAnnotator
     {
         public const string LayerPhText  = "AP rebar top";
-        public const string LayerPhHatch = "SD-PH-HATCH";
+        public const string LayerPhHatch = "AP-Hatch";
 
         // Default text style name used in Speedeck drawings
         private const string DefaultTextStyle = "WYG_0MS";
@@ -157,12 +157,13 @@ namespace AsdRcSlab
                     mt2.SetDatabaseDefaults();
                     mt2.TextHeight     = textHeight;
                     mt2.TextStyleId    = GetTextStyleId(tr, db, detectedStyle);
-                    mt2.Attachment     = AttachmentPoint.MiddleCenter;
-                    mt2.Location       = new Point3d(center.X, center.Y, 0);
-                    mt2.Width          = radius * 2.5; // wide enough for "PH3"
+                    mt2.Attachment     = AttachmentPoint.TopLeft;
+                    // Place PH text directly below the pile ID text, left-aligned with it
+                    mt2.Location       = new Point3d(textPos.X, textPos.Y - textHeight * 0.2, 0);
+                    mt2.Width          = radius * 3.0;
                     mt2.Contents       = mtContent;
                     mt2.Layer          = detectedLayer;
-                    mt2.Color          = Color.FromColorIndex(ColorMethod.ByLayer, 256);
+                    mt2.Color          = Color.FromColorIndex(ColorMethod.ByAci, 4); // cyan
                     btr.AppendEntity(mt2);
                     tr.AddNewlyCreatedDBObject(mt2, true);
 
@@ -181,7 +182,7 @@ namespace AsdRcSlab
         private static void AddSolidHatch(Transaction tr, Database db,
             BlockTableRecord btr, Point3d center, double radius, string phAction)
         {
-            // Create an invisible boundary circle, then hatch it
+            // Boundary circle (invisible)
             var boundCircle = new Circle(center, Vector3d.ZAxis, radius);
             boundCircle.SetDatabaseDefaults();
             boundCircle.Layer   = LayerPhHatch;
@@ -189,18 +190,22 @@ namespace AsdRcSlab
             btr.AppendEntity(boundCircle);
             tr.AddNewlyCreatedDBObject(boundCircle, true);
 
+            // ANSI31 diagonal hatch — Red (ACI 1)
+            // Scale proporcjonalny do promienia: ~5-6 linii przez średnicę
+            // ANSI31 base spacing = 3.175mm @ scale=1 → scale = radius * 0.12 ≈ spacing co ~38mm przy r=300
+            double hatchScale = Math.Max(5.0, radius * 0.12);
+
             var hatch = new Hatch();
             hatch.SetDatabaseDefaults();
             hatch.HatchObjectType = HatchObjectType.HatchObject;
-            hatch.SetHatchPattern(HatchPatternType.PreDefined, "SOLID");
-            hatch.ColorIndex  = PhColorIndex(phAction);
-            hatch.Layer       = LayerPhHatch;
+            hatch.SetHatchPattern(HatchPatternType.PreDefined, "ANSI31");
+            hatch.PatternScale = hatchScale;
+            hatch.ColorIndex   = 1;   // red
+            hatch.Layer        = LayerPhHatch;
             btr.AppendEntity(hatch);
             tr.AddNewlyCreatedDBObject(hatch, true);
-
             hatch.Associative = false;
-            var idCol = new ObjectIdCollection { boundCircle.ObjectId };
-            hatch.AppendLoop(HatchLoopTypes.Outermost, idCol);
+            hatch.AppendLoop(HatchLoopTypes.Outermost, new ObjectIdCollection { boundCircle.ObjectId });
             hatch.EvaluateHatch(true);
         }
 
