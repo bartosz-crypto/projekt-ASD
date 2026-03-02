@@ -35,21 +35,46 @@ namespace AsdRcSlab
         public void CmdOtworzProjekt()
         {
             var doc = AcApp.DocumentManager.MdiActiveDocument;
-            doc.Editor.WriteMessage("\nTODO: Otworz Projekt — file picker project.json\n");
+
+            var dlg = new Microsoft.Win32.OpenFileDialog
+            {
+                Title  = "Wczytaj projekt",
+                Filter = "Project JSON (*.json)|*.json",
+                DefaultExt = ".json"
+            };
+
+            if (dlg.ShowDialog() != true) return;
+
+            try
+            {
+                string json = File.ReadAllText(dlg.FileName);
+                SessionData.CurrentProject = JsonConvert.DeserializeObject<ProjectData>(json);
+                doc.Editor.WriteMessage(
+                    $"\nWczytano: {SessionData.CurrentProject.ProjectName}" +
+                    $", DRW: {SessionData.CurrentProject.DRWNumber}" +
+                    $", h={SessionData.CurrentProject.SlabThickness}mm\n");
+            }
+            catch (System.Exception ex)
+            {
+                doc.Editor.WriteMessage($"\nBlad wczytywania projektu: {ex.Message}\n");
+            }
         }
 
         [CommandMethod("ASD-GAI")]
         public void CmdWczytajGA()
         {
-            var doc = AcApp.DocumentManager.MdiActiveDocument;
-            doc.Editor.WriteMessage("\nTODO: Wczytaj GA — dostepne w Sprint 2\n");
+            System.Windows.MessageBox.Show(
+                "GAI — Wczytaj GA będzie dostępne w Sprint 2.\n\nNa razie wprowadź dane ręcznie przez 'Nowy Projekt'.",
+                "ASD RC SLAB — Wczytaj GA",
+                System.Windows.MessageBoxButton.OK,
+                System.Windows.MessageBoxImage.Information);
         }
 
         [CommandMethod("ASD-SET")]
         public void CmdUstawienia()
         {
-            var doc = AcApp.DocumentManager.MdiActiveDocument;
-            doc.Editor.WriteMessage("\nTODO: Ustawienia — parametry systemowe Speedeck\n");
+            var dlg = new SettingsDialog();
+            AcApp.ShowModalWindow(AcApp.MainWindow.Handle, dlg, false);
         }
 
         // ── PANEL 2: ZBROJENIE ────────────────────────────────────────────────

@@ -1,0 +1,108 @@
+<Window x:Class="AsdRcSlab.SettingsDialog"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        Title="Ustawienia systemu — Speedeck ASD RC SLAB"
+        Width="440" SizeToContent="Height"
+        WindowStartupLocation="CenterScreen"
+        ResizeMode="NoResize"
+        Background="#F5F5F5">
+    <StackPanel Margin="16">
+
+        <Border Background="#1565C0" CornerRadius="4" Padding="10,8" Margin="0,0,0,14">
+            <TextBlock Text="PARAMETRY SYSTEMOWE SPEEDECK" FontSize="13" FontWeight="Bold"
+                       Foreground="White" HorizontalAlignment="Center"/>
+        </Border>
+
+        <!-- COVERS -->
+        <TextBlock Text="COVERS" FontWeight="Bold" FontSize="11" Foreground="#555"
+                   Margin="0,0,0,4"/>
+        <Border BorderBrush="#CCCCCC" BorderThickness="1" CornerRadius="3" Margin="0,0,0,10">
+            <Grid Margin="8">
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="*"/>
+                    <ColumnDefinition Width="80"/>
+                </Grid.ColumnDefinitions>
+                <Grid.RowDefinitions>
+                    <RowDefinition Height="26"/>
+                    <RowDefinition Height="26"/>
+                    <RowDefinition Height="26"/>
+                    <RowDefinition Height="26"/>
+                </Grid.RowDefinitions>
+                <TextBlock Grid.Row="0" Grid.Column="0" Text="Cover Top" VerticalAlignment="Center" FontSize="12"/>
+                <TextBlock Grid.Row="0" Grid.Column="1" Text="35 mm" VerticalAlignment="Center" FontSize="12" FontWeight="SemiBold" HorizontalAlignment="Right"/>
+                <TextBlock Grid.Row="1" Grid.Column="0" Text="Cover Bottom" VerticalAlignment="Center" FontSize="12"/>
+                <TextBlock Grid.Row="1" Grid.Column="1" Text="40 mm" VerticalAlignment="Center" FontSize="12" FontWeight="SemiBold" HorizontalAlignment="Right"/>
+                <TextBlock Grid.Row="2" Grid.Column="0" Text="Cover NIB" VerticalAlignment="Center" FontSize="12"/>
+                <TextBlock Grid.Row="2" Grid.Column="1" Text="30 mm" VerticalAlignment="Center" FontSize="12" FontWeight="SemiBold" HorizontalAlignment="Right"/>
+                <TextBlock Grid.Row="3" Grid.Column="0" Text="Cover GB Bottom" VerticalAlignment="Center" FontSize="12"/>
+                <TextBlock Grid.Row="3" Grid.Column="1" Text="75 mm" VerticalAlignment="Center" FontSize="12" FontWeight="SemiBold" HorizontalAlignment="Right"/>
+            </Grid>
+        </Border>
+
+        <!-- ZAKLADY NOTE 16 -->
+        <TextBlock Text="ZAKŁADY (NOTE 16 — HARDCODED)" FontWeight="Bold" FontSize="11" Foreground="#555"
+                   Margin="0,0,0,4"/>
+        <Border BorderBrush="#CCCCCC" BorderThickness="1" CornerRadius="3" Margin="0,0,0,10">
+            <Grid Margin="8">
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="*"/>
+                    <ColumnDefinition Width="80"/>
+                </Grid.ColumnDefinitions>
+                <Grid.RowDefinitions>
+                    <RowDefinition Height="26"/>
+                    <RowDefinition Height="26"/>
+                    <RowDefinition Height="26"/>
+                </Grid.RowDefinitions>
+                <TextBlock Grid.Row="0" Grid.Column="0" Text="Zakład H10" VerticalAlignment="Center" FontSize="12"/>
+                <TextBlock Grid.Row="0" Grid.Column="1" Text="400 mm" VerticalAlignment="Center" FontSize="12" FontWeight="SemiBold" HorizontalAlignment="Right"/>
+                <TextBlock Grid.Row="1" Grid.Column="0" Text="Zakład H12" VerticalAlignment="Center" FontSize="12"/>
+                <TextBlock Grid.Row="1" Grid.Column="1" Text="500 mm" VerticalAlignment="Center" FontSize="12" FontWeight="SemiBold" HorizontalAlignment="Right"/>
+                <TextBlock Grid.Row="2" Grid.Column="0" Text="Zakład H16" VerticalAlignment="Center" FontSize="12"/>
+                <TextBlock Grid.Row="2" Grid.Column="1" Text="650 mm" VerticalAlignment="Center" FontSize="12" FontWeight="SemiBold" HorizontalAlignment="Right"/>
+            </Grid>
+        </Border>
+
+        <!-- ZBROJENIE BAZOWE -->
+        <TextBlock Text="ZBROJENIE BAZOWE" FontWeight="Bold" FontSize="11" Foreground="#555"
+                   Margin="0,0,0,4"/>
+        <Border BorderBrush="#CCCCCC" BorderThickness="1" CornerRadius="3" Margin="0,0,0,10">
+            <Grid Margin="8">
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="*"/>
+                    <ColumnDefinition Width="100"/>
+                </Grid.ColumnDefinitions>
+                <Grid.RowDefinitions>
+                    <RowDefinition Height="26"/>
+                    <RowDefinition Height="26"/>
+                </Grid.RowDefinitions>
+                <TextBlock Grid.Row="0" Grid.Column="0" Text="As base Bottom (H10@200)" VerticalAlignment="Center" FontSize="12"/>
+                <TextBlock Grid.Row="0" Grid.Column="1" Text="393 mm²/m" VerticalAlignment="Center" FontSize="12" FontWeight="SemiBold" HorizontalAlignment="Right"/>
+                <TextBlock Grid.Row="1" Grid.Column="0" Text="As base Top (H12@200)" VerticalAlignment="Center" FontSize="12"/>
+                <TextBlock Grid.Row="1" Grid.Column="1" Text="565 mm²/m" VerticalAlignment="Center" FontSize="12" FontWeight="SemiBold" HorizontalAlignment="Right"/>
+            </Grid>
+        </Border>
+
+        <!-- PALE -->
+        <TextBlock Text="PALE — SFA" FontWeight="Bold" FontSize="11" Foreground="#555"
+                   Margin="0,0,0,4"/>
+        <Border BorderBrush="#CCCCCC" BorderThickness="1" CornerRadius="3" Margin="0,0,0,14">
+            <Grid Margin="8">
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="*"/>
+                    <ColumnDefinition Width="120"/>
+                </Grid.ColumnDefinitions>
+                <Grid.RowDefinitions>
+                    <RowDefinition Height="26"/>
+                    <RowDefinition Height="26"/>
+                </Grid.RowDefinitions>
+                <TextBlock Grid.Row="0" Grid.Column="0" Text="Średnica pala" VerticalAlignment="Center" FontSize="12"/>
+                <TextBlock Grid.Row="0" Grid.Column="1" Text="Ø300 mm" VerticalAlignment="Center" FontSize="12" FontWeight="SemiBold" HorizontalAlignment="Right"/>
+                <TextBlock Grid.Row="1" Grid.Column="0" Text="k_spring" VerticalAlignment="Center" FontSize="12"/>
+                <TextBlock Grid.Row="1" Grid.Column="1" Text="212 333 kN/m" VerticalAlignment="Center" FontSize="12" FontWeight="SemiBold" HorizontalAlignment="Right"/>
+            </Grid>
+        </Border>
+
+        <Button Content="Zamknij" Width="80" Height="28" HorizontalAlignment="Right"
+                Click="BtnClose_Click" Background="#1565C0" Foreground="White" BorderThickness="0"/>
+    </StackPanel>
+</Window>

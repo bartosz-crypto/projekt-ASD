@@ -39,3 +39,5 @@ C:\Users\Dell\Desktop\ClaudeCode\AsdRcSlab\bin\Publish\System.Memory.dll
 C:\Users\Dell\Desktop\ClaudeCode\AsdRcSlab\bin\Publish\System.Numerics.Vectors.dll
 C:\Users\Dell\Desktop\ClaudeCode\AsdRcSlab\bin\Publish\System.Runtime.CompilerServices.Unsafe.dll
 C:\Users\Dell\Desktop\ClaudeCode\AsdRcSlab\bin\Publish\XLParser.dll
+C:\Users\Dell\Desktop\ClaudeCode\AsdRcSlab\obj\Debug\SettingsDialog.baml
+C:\Users\Dell\Desktop\ClaudeCode\AsdRcSlab\obj\Debug\SettingsDialog.g.cs
