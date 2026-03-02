@@ -41,3 +41,9 @@ C:\Users\Dell\Desktop\ClaudeCode\AsdRcSlab\bin\Publish\System.Runtime.CompilerSe
 C:\Users\Dell\Desktop\ClaudeCode\AsdRcSlab\bin\Publish\XLParser.dll
 C:\Users\Dell\Desktop\ClaudeCode\AsdRcSlab\obj\Debug\SettingsDialog.baml
 C:\Users\Dell\Desktop\ClaudeCode\AsdRcSlab\obj\Debug\SettingsDialog.g.cs
+C:\Users\Dell\Desktop\ClaudeCode\AsdRcSlab\obj\Debug\BmmResultsDialog.baml
+C:\Users\Dell\Desktop\ClaudeCode\AsdRcSlab\obj\Debug\LapCalculatorDialog.baml
+C:\Users\Dell\Desktop\ClaudeCode\AsdRcSlab\obj\Debug\ReinforcementStubDialog.baml
+C:\Users\Dell\Desktop\ClaudeCode\AsdRcSlab\obj\Debug\BmmResultsDialog.g.cs
+C:\Users\Dell\Desktop\ClaudeCode\AsdRcSlab\obj\Debug\LapCalculatorDialog.g.cs
+C:\Users\Dell\Desktop\ClaudeCode\AsdRcSlab\obj\Debug\ReinforcementStubDialog.g.cs

@@ -10,11 +10,11 @@ none
 false
 TRACE;DEBUG;NETFRAMEWORK;NET48;
 
-21995440477
+5-472058391
 
-8-272328383
+12-1570034659
 143-609248385
-NewProjectDialog.xaml;SettingsDialog.xaml;
+BmmResultsDialog.xaml;LapCalculatorDialog.xaml;NewProjectDialog.xaml;ReinforcementStubDialog.xaml;SettingsDialog.xaml;
 
 False
 

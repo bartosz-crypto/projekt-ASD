@@ -2,6 +2,7 @@ using Autodesk.AutoCAD.Runtime;
 using AcApp = Autodesk.AutoCAD.ApplicationServices.Application;
 using Newtonsoft.Json;
 using System.IO;
+using System.Linq;
 
 namespace AsdRcSlab
 {
@@ -82,29 +83,52 @@ namespace AsdRcSlab
         [CommandMethod("ASD-GBOT")]
         public void CmdGenerujB1B2()
         {
-            var doc = AcApp.DocumentManager.MdiActiveDocument;
-            doc.Editor.WriteMessage("\nTODO: Generuj B1/B2 — siatka dolna H10@200\n");
+            var dlg = new ReinforcementStubDialog(dia: 10, layer: "B1/B2", asBase: 393);
+            AcApp.ShowModalWindow(AcApp.MainWindow.Handle, dlg, false);
         }
 
         [CommandMethod("ASD-GTOP")]
         public void CmdGenerujT1T2()
         {
-            var doc = AcApp.DocumentManager.MdiActiveDocument;
-            doc.Editor.WriteMessage("\nTODO: Generuj T1/T2 — siatka gorna H12@200\n");
+            var dlg = new ReinforcementStubDialog(dia: 12, layer: "T1/T2", asBase: 565);
+            AcApp.ShowModalWindow(AcApp.MainWindow.Handle, dlg, false);
         }
 
         [CommandMethod("ASD-BMM")]
         public void CmdOznaczPrety()
         {
             var doc = AcApp.DocumentManager.MdiActiveDocument;
-            doc.Editor.WriteMessage("\nTODO: Oznacz Prety — walidacja BBS R87/R95/R81/R83\n");
+
+            var fileDlg = new Microsoft.Win32.OpenFileDialog
+            {
+                Title      = "Wybierz plik BBS",
+                Filter     = "Excel BBS (*.xlsx)|*.xlsx",
+                DefaultExt = ".xlsx"
+            };
+            if (fileDlg.ShowDialog() != true) return;
+
+            try
+            {
+                var result   = BmmChecker.CheckAll(fileDlg.FileName);
+                int failCount = new[] { result.R87, result.R95, result.R81, result.R83, result.R92 }
+                    .Count(r => r.Status == "FAIL");
+
+                doc.Editor.WriteMessage($"\nBMM: {failCount} błędów znaleziono — sprawdź okno wyników.\n");
+
+                var resultDlg = new BmmResultsDialog(result, System.IO.Path.GetFileName(fileDlg.FileName));
+                AcApp.ShowModalWindow(AcApp.MainWindow.Handle, resultDlg, false);
+            }
+            catch (System.Exception ex)
+            {
+                doc.Editor.WriteMessage($"\nBMM błąd: {ex.Message}\n");
+            }
         }
 
         [CommandMethod("ASD-LAP")]
         public void CmdZakladyAuto()
         {
-            var doc = AcApp.DocumentManager.MdiActiveDocument;
-            doc.Editor.WriteMessage("\nTODO: Zaklady Auto — kalkulator Note 16\n");
+            var dlg = new LapCalculatorDialog();
+            AcApp.ShowModalWindow(AcApp.MainWindow.Handle, dlg, false);
         }
 
         // ── PANEL 3: PH CONDITIONS ────────────────────────────────────────────
