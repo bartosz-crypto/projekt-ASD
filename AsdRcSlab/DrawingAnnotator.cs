@@ -10,85 +10,126 @@ using AcApp = Autodesk.AutoCAD.ApplicationServices.Application;
 namespace AsdRcSlab
 {
     /// <summary>
-    /// Annotates pile circles on the active AutoCAD drawing:
-    /// - finds CIRCLE entities near TEXT entities matching each pile ID
-    /// - adds a TEXT with the PH designation (e.g., PH3)
-    /// - fills the circle with a SOLID hatch coloured by PH level
+    /// Annotates pile circles on the active AutoCAD drawing with PH labels and SOLID hatch fills.
+    /// - NO ACTION piles are skipped (no annotation added)
+    /// - Copies text style / layer from any existing PH annotations in the drawing
+    /// - Falls back to layer "AP rebar top" / style "WYG_0MS" if nothing found
+    /// - PH text is placed centred INSIDE the pile circle
+    /// - SOLID hatch fills the pile circle; colour depends on PH level
     /// </summary>
     public static class DrawingAnnotator
     {
-        // Layer names created by this tool (public so Commands.cs can reference them)
-        public const string LayerPhText  = "SD-PH";
+        public const string LayerPhText  = "AP rebar top";
         public const string LayerPhHatch = "SD-PH-HATCH";
+
+        // Default text style name used in Speedeck drawings
+        private const string DefaultTextStyle = "WYG_0MS";
 
         public static AnnotationResult Annotate(List<PileData> piles)
         {
             var result = new AnnotationResult();
 
             var doc = AcApp.DocumentManager.MdiActiveDocument;
-            if (doc == null)
-            {
-                result.Log = "Brak aktywnego dokumentu AutoCAD.";
-                return result;
-            }
+            if (doc == null) { result.Log = "Brak aktywnego dokumentu."; return result; }
 
             var db = doc.Database;
 
             using (var tr = db.TransactionManager.StartTransaction())
             {
-                // Ensure annotation layers exist
-                EnsureLayer(tr, db, LayerPhText,  2);   // yellow
-                EnsureLayer(tr, db, LayerPhHatch, 256); // byLayer (colour set per PH)
-
                 var bt  = (BlockTable)tr.GetObject(db.BlockTableId, OpenMode.ForRead);
                 var btr = (BlockTableRecord)tr.GetObject(bt[BlockTableRecord.ModelSpace], OpenMode.ForRead);
 
-                // Collect all TEXT / MTEXT / CIRCLE entities from model space
-                var allTexts   = new List<(string Text, Point3d Pos, ObjectId Id)>();
-                var allCircles = new List<(Point3d Center, double Radius, ObjectId Id)>();
+                // ── 1. Collect drawing entities ──────────────────────────────────────
+                var allTexts   = new List<(string Text, Point3d Pos, ObjectId Id, double Height, string Style, string Layer)>();
+                var allCircles = new List<(Point3d Center, double Radius, ObjectId Id, string Layer)>();
 
                 foreach (ObjectId id in btr)
                 {
                     try
                     {
                         var ent = tr.GetObject(id, OpenMode.ForRead);
+
                         if (ent is DBText dbt)
-                            allTexts.Add((dbt.TextString?.Trim() ?? "", dbt.Position, id));
+                        {
+                            allTexts.Add((dbt.TextString?.Trim() ?? "",
+                                          dbt.Position, id,
+                                          dbt.Height,
+                                          dbt.TextStyleName ?? "",
+                                          dbt.Layer ?? ""));
+                        }
                         else if (ent is MText mt)
                         {
-                            // Strip MText formatting to get plain text
-                            string plain = mt.Contents?.Replace("\\P", " ") ?? "";
-                            plain = Regex.Replace(plain, @"\\\w[^;]*;", "");
-                            plain = plain.Trim();
-                            allTexts.Add((plain, mt.Location, id));
+                            string plain = StripMTextFormat(mt.Contents ?? "");
+                            allTexts.Add((plain, mt.Location, id,
+                                          mt.TextHeight,
+                                          mt.TextStyleName ?? "",
+                                          mt.Layer ?? ""));
                         }
                         else if (ent is Circle c)
-                            allCircles.Add((c.Center, c.Radius, id));
+                        {
+                            allCircles.Add((c.Center, c.Radius, id, c.Layer ?? ""));
+                        }
                     }
-                    catch { /* ignore locked / proxy entities */ }
+                    catch { /* proxy or locked entities */ }
                 }
 
                 result.TotalCircles = allCircles.Count;
                 result.TotalTexts   = allTexts.Count;
 
-                // Switch btr to write for appending new entities
+                // ── 2. Detect existing PH annotation style ───────────────────────────
+                string detectedLayer = LayerPhText;
+                string detectedStyle = DefaultTextStyle;
+                double detectedHeightFactor = 0.8; // text height = radius × factor
+
+                var existingPh = allTexts
+                    .Where(t => Regex.IsMatch(t.Text, @"^PH\d", RegexOptions.IgnoreCase))
+                    .ToList();
+
+                if (existingPh.Count > 0)
+                {
+                    var sample = existingPh[0];
+                    if (!string.IsNullOrEmpty(sample.Layer)) detectedLayer = sample.Layer;
+                    if (!string.IsNullOrEmpty(sample.Style)) detectedStyle = sample.Style;
+                    // Find nearest circle to estimate height factor
+                    var nearCircle = allCircles
+                        .OrderBy(c => c.Center.DistanceTo(sample.Pos))
+                        .FirstOrDefault();
+                    if (nearCircle.Radius > 0 && sample.Height > 0)
+                        detectedHeightFactor = sample.Height / nearCircle.Radius;
+                    result.Log += $"Wykryto istniejący styl PH: warstwa={detectedLayer}, styl={detectedStyle}\n";
+                }
+
+                // Ensure annotation layers and text style exist
+                EnsureLayer(tr, db, detectedLayer, 2);   // yellow
+                EnsureLayer(tr, db, LayerPhHatch, 256);  // byLayer
+                string styleId = EnsureTextStyle(tr, db, detectedStyle);
+
                 btr.UpgradeOpen();
 
+                // ── 3. Annotate each pile ─────────────────────────────────────────────
                 foreach (var pile in piles)
                 {
-                    // Find text entity that best matches this pile ID
-                    var match = FindPileText(pile.PileId, allTexts);
-                    if (match == null)
+                    // NO ACTION → no annotation
+                    if (pile.PhAction == "NO ACTION" ||
+                        string.IsNullOrEmpty(pile.PhAction))
+                    {
+                        result.Skipped.Add(pile.PileId);
+                        continue;
+                    }
+
+                    // Find text entity matching this pile ID
+                    var matchText = FindPileText(pile.PileId, allTexts);
+                    if (matchText == null)
                     {
                         result.NotFound.Add(pile.PileId);
                         continue;
                     }
 
-                    Point3d textPos = match.Value.Pos;
+                    Point3d textPos = matchText.Value.Pos;
 
-                    // Find nearest circle to the pile text
+                    // Find nearest circle to pile text
                     var nearCircle = allCircles
-                        .Where(c => c.Center.DistanceTo(textPos) < c.Radius * 10)
+                        .Where(c => c.Center.DistanceTo(textPos) < c.Radius * 8)
                         .OrderBy(c => c.Center.DistanceTo(textPos))
                         .FirstOrDefault();
 
@@ -98,47 +139,32 @@ namespace AsdRcSlab
                         continue;
                     }
 
-                    double r = nearCircle.Radius;
-                    Point3d cen = nearCircle.Center;
+                    double radius  = nearCircle.Radius;
+                    Point3d center = nearCircle.Center;
 
-                    // Position PH text below the pile ID text (offset = 1.5 × radius)
-                    double textHeight = Math.Max(r * 0.5, 50);
-                    var phPos = new Point3d(textPos.X, textPos.Y - r * 1.5, 0);
+                    // ── Add SOLID hatch inside circle ─────────────────────────────
+                    AddSolidHatch(tr, db, btr, center, radius, pile.PhAction);
 
-                    // Add PH label TEXT
-                    var phText = new DBText();
-                    phText.SetDatabaseDefaults();
-                    phText.TextString = pile.PhAction;
-                    phText.Height     = textHeight;
-                    phText.Position   = phPos;
-                    phText.Layer      = LayerPhText;
-                    phText.Justify    = AttachmentPoint.MiddleCenter;
-                    phText.AlignmentPoint = phPos;
-                    btr.AppendEntity(phText);
-                    tr.AddNewlyCreatedDBObject(phText, true);
+                    // ── Add PH text centred inside circle ─────────────────────────
+                    double textHeight = radius * detectedHeightFactor;
+                    if (textHeight < 50)  textHeight = 50;
+                    if (textHeight > 300) textHeight = 300;
 
-                    // Add SOLID HATCH inside the circle
-                    var hatch = new Hatch();
-                    hatch.SetDatabaseDefaults();
-                    hatch.HatchObjectType = HatchObjectType.HatchObject;
-                    hatch.SetHatchPattern(HatchPatternType.PreDefined, "SOLID");
-                    hatch.ColorIndex = PhColorIndex(pile.PhAction);
-                    hatch.Layer      = LayerPhHatch;
-                    btr.AppendEntity(hatch);
-                    tr.AddNewlyCreatedDBObject(hatch, true);
+                    // MText format matching Speedeck style: PH{font;number}
+                    string mtContent = FormatPhMText(pile.PhAction);
 
-                    // Boundary: create a duplicate circle as hatch boundary source
-                    var boundaryCopy = new Circle(cen, Vector3d.ZAxis, r);
-                    boundaryCopy.SetDatabaseDefaults();
-                    boundaryCopy.Layer   = LayerPhHatch;
-                    boundaryCopy.Visible = false;
-                    btr.AppendEntity(boundaryCopy);
-                    tr.AddNewlyCreatedDBObject(boundaryCopy, true);
-
-                    var idCol = new ObjectIdCollection { boundaryCopy.ObjectId };
-                    hatch.Associative = false;
-                    hatch.AppendLoop(HatchLoopTypes.Outermost, idCol);
-                    hatch.EvaluateHatch(true);
+                    var mt2 = new MText();
+                    mt2.SetDatabaseDefaults();
+                    mt2.TextHeight     = textHeight;
+                    mt2.TextStyleId    = GetTextStyleId(tr, db, detectedStyle);
+                    mt2.Attachment     = AttachmentPoint.MiddleCenter;
+                    mt2.Location       = new Point3d(center.X, center.Y, 0);
+                    mt2.Width          = radius * 2.5; // wide enough for "PH3"
+                    mt2.Contents       = mtContent;
+                    mt2.Layer          = detectedLayer;
+                    mt2.Color          = Color.FromColorIndex(ColorMethod.ByLayer, 256);
+                    btr.AppendEntity(mt2);
+                    tr.AddNewlyCreatedDBObject(mt2, true);
 
                     result.Annotated.Add(pile.PileId);
                 }
@@ -146,32 +172,59 @@ namespace AsdRcSlab
                 tr.Commit();
             }
 
-            result.Log = BuildLog(result);
+            result.Log += BuildLog(result);
             return result;
         }
 
-        // ── Helpers ─────────────────────────────────────────────────────────────────
+        // ── Private helpers ──────────────────────────────────────────────────────────
 
-        private static (string Text, Point3d Pos, ObjectId Id)? FindPileText(
-            string pileId, List<(string Text, Point3d Pos, ObjectId Id)> allTexts)
+        private static void AddSolidHatch(Transaction tr, Database db,
+            BlockTableRecord btr, Point3d center, double radius, string phAction)
         {
-            string normId = NormalizePileId(pileId);
+            // Create an invisible boundary circle, then hatch it
+            var boundCircle = new Circle(center, Vector3d.ZAxis, radius);
+            boundCircle.SetDatabaseDefaults();
+            boundCircle.Layer   = LayerPhHatch;
+            boundCircle.Visible = false;
+            btr.AppendEntity(boundCircle);
+            tr.AddNewlyCreatedDBObject(boundCircle, true);
 
-            foreach (var t in allTexts)
-            {
-                if (NormalizePileId(t.Text) == normId)
-                    return t;
-            }
-            return null;
+            var hatch = new Hatch();
+            hatch.SetDatabaseDefaults();
+            hatch.HatchObjectType = HatchObjectType.HatchObject;
+            hatch.SetHatchPattern(HatchPatternType.PreDefined, "SOLID");
+            hatch.ColorIndex  = PhColorIndex(phAction);
+            hatch.Layer       = LayerPhHatch;
+            btr.AppendEntity(hatch);
+            tr.AddNewlyCreatedDBObject(hatch, true);
+
+            hatch.Associative = false;
+            var idCol = new ObjectIdCollection { boundCircle.ObjectId };
+            hatch.AppendLoop(HatchLoopTypes.Outermost, idCol);
+            hatch.EvaluateHatch(true);
         }
 
-        /// <summary>Normalizuje pile ID: usuwa prefix P/p, leading zeros, trim.</summary>
-        private static string NormalizePileId(string s)
+        private static string EnsureTextStyle(Transaction tr, Database db, string styleName)
         {
-            if (string.IsNullOrWhiteSpace(s)) return "";
-            s = s.Trim().TrimStart('P', 'p');
-            if (int.TryParse(s, out int n)) return n.ToString();
-            return s.ToUpperInvariant();
+            var tt = (TextStyleTable)tr.GetObject(db.TextStyleTableId, OpenMode.ForRead);
+            if (!tt.Has(styleName))
+            {
+                // Create a minimal style (uses "romans.shx" — common in AutoCAD)
+                var ttr = new TextStyleTableRecord();
+                ttr.Name     = styleName;
+                ttr.FileName = "romans.shx";
+                tt.UpgradeOpen();
+                tt.Add(ttr);
+                tr.AddNewlyCreatedDBObject(ttr, true);
+            }
+            return styleName;
+        }
+
+        private static ObjectId GetTextStyleId(Transaction tr, Database db, string styleName)
+        {
+            var tt = (TextStyleTable)tr.GetObject(db.TextStyleTableId, OpenMode.ForRead);
+            if (tt.Has(styleName)) return tt[styleName];
+            return db.Textstyle; // current style as fallback
         }
 
         private static void EnsureLayer(Transaction tr, Database db, string name, short colorIndex)
@@ -188,24 +241,70 @@ namespace AsdRcSlab
             }
         }
 
-        // ACI color index by PH level
+        private static (string Text, Point3d Pos, ObjectId Id, double Height, string Style, string Layer)?
+            FindPileText(string pileId, List<(string Text, Point3d Pos, ObjectId Id, double Height, string Style, string Layer)> texts)
+        {
+            string normId = NormalizePileId(pileId);
+            foreach (var t in texts)
+                if (NormalizePileId(t.Text) == normId)
+                    return t;
+            return null;
+        }
+
+        private static string NormalizePileId(string s)
+        {
+            if (string.IsNullOrWhiteSpace(s)) return "";
+            s = s.Trim().TrimStart('P', 'p');
+            if (int.TryParse(s, out int n)) return n.ToString();
+            return s.ToUpperInvariant();
+        }
+
+        private static string StripMTextFormat(string raw)
+        {
+            if (string.IsNullOrEmpty(raw)) return "";
+            string s = raw.Replace("\\P", " ").Replace("\\p", " ");
+            s = Regex.Replace(s, @"\\\w[^;]*;", "");
+            s = Regex.Replace(s, @"\{[^}]*\}", m =>
+            {
+                // Keep text content inside braces
+                string inner = Regex.Replace(m.Value.Trim('{', '}'), @"\\\w[^;]*;", "");
+                return inner;
+            });
+            return s.Trim();
+        }
+
+        /// <summary>Build MText content string matching Speedeck format.</summary>
+        private static string FormatPhMText(string phAction)
+        {
+            // Format: PH + number in Romans font, e.g. "PH{\Fromans|c238;3}"
+            // Extract number from phAction (PH3, PH3-RE, EXCEED, etc.)
+            var m = Regex.Match(phAction, @"\d+(-\w+)?");
+            string suffix = m.Success ? m.Value : phAction.Replace("PH", "");
+
+            if (phAction == "EXCEED")
+                return @"{\CEXCEED}"; // fallback plain text
+
+            return $@"PH{{\Fromans|c238;{suffix}}}";
+        }
+
         private static short PhColorIndex(string ph)
         {
+            // ACI colour by PH level (matching existing Speedeck colour scheme)
             switch (ph)
             {
-                case "PH1": case "PH2": case "PH3": return 3;  // green
-                case "PH4": case "PH5": case "PH6": return 2;  // yellow
-                case "PH7": case "PH8": case "PH9": return 1;  // red
-                case "PH3-RE":                      return 6;  // magenta
-                case "EXCEED":                      return 10; // dark red
-                default:                            return 7;  // white
+                case "PH1": case "PH2": case "PH3": return 3;   // green
+                case "PH4": case "PH5": case "PH6": return 2;   // yellow
+                case "PH7": case "PH8": case "PH9": return 1;   // red
+                case "PH3-RE":                      return 6;   // magenta
+                case "EXCEED":                      return 10;  // dark red / maroon
+                default:                            return 7;   // white
             }
         }
 
         private static string BuildLog(AnnotationResult r)
         {
             var sb = new System.Text.StringBuilder();
-            sb.AppendLine($"Podpisano: {r.Annotated.Count} pali");
+            sb.AppendLine($"Podpisano: {r.Annotated.Count} | Pominięto NO ACTION: {r.Skipped.Count} | Nie znaleziono: {r.NotFound.Count}");
             if (r.NotFound.Count > 0)
                 sb.AppendLine($"Nie znaleziono: {string.Join(", ", r.NotFound)}");
             return sb.ToString();
@@ -214,10 +313,11 @@ namespace AsdRcSlab
 
     public class AnnotationResult
     {
-        public int         TotalCircles { get; set; }
-        public int         TotalTexts   { get; set; }
-        public List<string> Annotated   { get; set; } = new List<string>();
-        public List<string> NotFound    { get; set; } = new List<string>();
-        public string      Log          { get; set; } = "";
+        public int          TotalCircles { get; set; }
+        public int          TotalTexts   { get; set; }
+        public List<string> Annotated    { get; set; } = new List<string>();
+        public List<string> Skipped      { get; set; } = new List<string>();
+        public List<string> NotFound     { get; set; } = new List<string>();
+        public string       Log          { get; set; } = "";
     }
 }
