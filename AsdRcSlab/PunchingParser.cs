@@ -8,82 +8,105 @@ namespace AsdRcSlab
 {
     public static class PunchingParser
     {
-        public static List<PileData> Parse(string xlsxPath, out string parseLog)
+        // Zwraca liste nazw arkuszy z pliku
+        public static List<string> GetSheetNames(string xlsxPath)
+        {
+            using (var pkg = new ExcelPackage(new FileInfo(xlsxPath)))
+                return pkg.Workbook.Worksheets.Select(w => w.Name).ToList();
+        }
+
+        public static List<PileData> Parse(string xlsxPath, string sheetName, out string parseLog)
         {
             var piles = new List<PileData>();
             var log   = new System.Text.StringBuilder();
 
             using (var pkg = new ExcelPackage(new FileInfo(xlsxPath)))
             {
-                // Znajdz wlasciwy arkusz
-                ExcelWorksheet ws = FindSheet(pkg);
+                ExcelWorksheet ws = pkg.Workbook.Worksheets[sheetName];
                 if (ws == null)
                 {
-                    log.AppendLine("Nie znaleziono arkusza z danymi pali.");
-                    log.AppendLine("Dostepne arkusze:");
-                    foreach (var s in pkg.Workbook.Worksheets)
-                        log.AppendLine($"  — {s.Name}");
+                    log.AppendLine($"Nie znaleziono arkusza '{sheetName}'.");
                     parseLog = log.ToString();
                     return piles;
                 }
 
-                log.AppendLine($"Wczytuje arkusz: '{ws.Name}'");
-
                 int lastRow = ws.Dimension?.End.Row ?? 1;
-                int lastCol = ws.Dimension?.End.Column ?? 20;
+                int lastCol = ws.Dimension?.End.Column ?? 50;
 
-                // Znajdz naglowki
+                log.AppendLine($"Arkusz: '{ws.Name}', wiersze: {lastRow}, kolumny: {lastCol}");
+
+                // Znajdz wiersz naglowkowy — szukaj "Pile id" lub "Pile ID"
                 int headerRow = -1;
-                int colId = -1, colUtil = -1, colLoc = -1;
+                int colId = -1, colShear = -1, colUtil = -1;
 
-                for (int r = 1; r <= Math.Min(15, lastRow); r++)
+                for (int r = 1; r <= Math.Min(20, lastRow); r++)
                 {
-                    for (int c = 1; c <= lastCol; c++)
+                    for (int c = 1; c <= Math.Min(lastCol, 60); c++)
                     {
-                        string cell = ws.Cells[r, c].GetValue<string>()?.Trim().ToUpperInvariant() ?? "";
-                        if (colId < 0 && (cell == "PILE" || cell == "PILE ID" || cell == "P_NO" ||
-                            cell == "PILE NO" || cell == "NO" || cell == "ID"))
+                        string val = ws.Cells[r, c].GetValue<string>()?.Trim() ?? "";
+
+                        if (colId < 0 &&
+                            (val.Equals("Pile id", StringComparison.OrdinalIgnoreCase) ||
+                             val.Equals("Pile ID", StringComparison.OrdinalIgnoreCase) ||
+                             val.Equals("Pile No", StringComparison.OrdinalIgnoreCase)))
                         { headerRow = r; colId = c; }
-                        else if (colUtil < 0 && (cell.Contains("UTIL") || cell.Contains("RATIO") ||
-                            cell == "U%" || cell == "UTILISATION" || cell == "UTILIZATION"))
+
+                        if (colShear < 0 &&
+                            val.IndexOf("SHEAR CONDITION", StringComparison.OrdinalIgnoreCase) >= 0)
+                        { colShear = c; }
+
+                        if (colUtil < 0 && val.Trim() == "%")
                         { colUtil = c; }
-                        else if (colLoc < 0 && (cell.Contains("LOCAT") || cell.Contains("TYPE") ||
-                            cell == "POSITION" || cell == "PH" || cell == "CONDITION"))
-                        { colLoc = c; }
                     }
-                    if (headerRow > 0 && colId > 0) break;
+                    if (headerRow > 0 && colShear > 0 && colUtil > 0) break;
                 }
 
                 if (headerRow < 0)
                 {
-                    log.AppendLine("Nie znaleziono naglowkow — szukano: Pile ID, Util%, Location.");
-                    log.AppendLine($"Naglowki w wierszu 1:");
-                    for (int c = 1; c <= Math.Min(lastCol, 10); c++)
-                        log.AppendLine($"  Kol {c}: '{ws.Cells[1, c].GetValue<string>()}'");
+                    log.AppendLine("Nie znaleziono wiersza nagłówkowego (szukano 'Pile id').");
+                    log.AppendLine("Pierwsze 5 wierszy kol 1-5:");
+                    for (int r = 1; r <= Math.Min(5, lastRow); r++)
+                    {
+                        var vals = Enumerable.Range(1, 5)
+                            .Select(c => ws.Cells[r, c].GetValue<string>() ?? "");
+                        log.AppendLine($"  R{r}: {string.Join(" | ", vals)}");
+                    }
                     parseLog = log.ToString();
                     return piles;
                 }
 
-                log.AppendLine($"Naglowki: ID=kol{colId}, Util=kol{colUtil}, Loc=kol{colLoc}");
+                log.AppendLine($"Nagłówek: wiersz {headerRow}, Pile id=kol{colId}, ShearCond=kol{colShear}, %=kol{colUtil}");
 
-                // Czytaj dane
+                // Czytaj wiersze z danymi
                 for (int r = headerRow + 1; r <= lastRow; r++)
                 {
                     string id = ws.Cells[r, colId].GetValue<string>()?.Trim() ?? "";
-                    if (string.IsNullOrEmpty(id)) continue;
 
+                    // Pomijaj puste, sekcje ("EDGE PILES", "INTERNAL PILES" itp.)
+                    if (string.IsNullOrWhiteSpace(id)) continue;
+                    if (id.EndsWith("PILES", StringComparison.OrdinalIgnoreCase)) continue;
+                    if (id.Equals("Pile id", StringComparison.OrdinalIgnoreCase)) continue;
+
+                    // Util %
                     double util = 0;
                     if (colUtil > 0)
                     {
-                        string uStr = ws.Cells[r, colUtil].GetValue<string>()?.Trim() ?? "0";
-                        uStr = uStr.Replace("%", "").Replace(",", ".");
+                        string uStr = ws.Cells[r, colUtil].GetValue<string>()?.Trim()
+                                      ?? ws.Cells[r, colUtil].GetValue<double>().ToString();
+                        uStr = uStr.Replace("%", "").Replace(",", ".").Trim();
                         double.TryParse(uStr, System.Globalization.NumberStyles.Any,
                             System.Globalization.CultureInfo.InvariantCulture, out util);
                     }
 
+                    // Location — z kolumny SHEAR CONDITION
                     string loc = "";
-                    if (colLoc > 0)
-                        loc = NormalizeLocation(ws.Cells[r, colLoc].GetValue<string>()?.Trim() ?? "");
+                    if (colShear > 0)
+                    {
+                        string raw = ws.Cells[r, colShear].GetValue<string>()?.Trim() ?? "";
+                        loc = NormalizeLocation(raw);
+                    }
+
+                    if (string.IsNullOrEmpty(loc)) loc = "INT"; // fallback
 
                     piles.Add(new PileData
                     {
@@ -94,35 +117,38 @@ namespace AsdRcSlab
                 }
 
                 log.AppendLine($"Wczytano {piles.Count} pali.");
+                if (piles.Count > 0)
+                {
+                    int edge   = piles.Count(p => p.LocationType == "EDGE");
+                    int corner = piles.Count(p => p.LocationType == "CORNER");
+                    int intern = piles.Count(p => p.LocationType == "INT");
+                    int re     = piles.Count(p => p.LocationType == "REENTRANT");
+                    log.AppendLine($"  INT={intern}, EDGE={edge}, CORNER={corner}, REENTRANT={re}");
+                }
             }
 
             parseLog = log.ToString();
             return piles;
         }
 
-        private static ExcelWorksheet FindSheet(ExcelPackage pkg)
-        {
-            string[] preferred = { "Summary", "Pile", "PUNCHING", "Results", "Data" };
-            foreach (var name in preferred)
-                foreach (var ws in pkg.Workbook.Worksheets)
-                    if (ws.Name.IndexOf(name, StringComparison.OrdinalIgnoreCase) >= 0)
-                        return ws;
-
-            // Fallback: pierwszy arkusz z wiecej niz 3 wierszami
-            return pkg.Workbook.Worksheets
-                .FirstOrDefault(w => (w.Dimension?.End.Row ?? 0) > 3)
-                ?? pkg.Workbook.Worksheets.FirstOrDefault();
-        }
-
         private static string NormalizeLocation(string raw)
         {
-            if (string.IsNullOrEmpty(raw)) return "INT";
-            string u = raw.ToUpperInvariant();
-            if (u.Contains("REENT") || u.Contains("RE-ENT") || u == "RE") return "REENTRANT";
+            if (string.IsNullOrEmpty(raw)) return "";
+            string u = raw.Trim().ToUpperInvariant();
+
+            // Format z PLOT.xlsx: "E", "C", "I"
+            if (u == "E")  return "EDGE";
+            if (u == "C")  return "CORNER";
+            if (u == "I")  return "INT";
+            if (u == "RE") return "REENTRANT";
+
+            // Pelne slowa
+            if (u.Contains("REENT") || u.Contains("RE-ENT")) return "REENTRANT";
             if (u.Contains("CORN"))  return "CORNER";
             if (u.Contains("EDGE"))  return "EDGE";
-            if (u.Contains("INT") || u == "I") return "INT";
-            return raw.ToUpperInvariant();
+            if (u.Contains("INT"))   return "INT";
+
+            return u;
         }
     }
 }

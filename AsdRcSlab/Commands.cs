@@ -147,23 +147,37 @@ namespace AsdRcSlab
 
             try
             {
+                // Krok 1: pobierz listę arkuszy i poproś użytkownika o wybór
+                var sheets = PunchingParser.GetSheetNames(fileDlg.FileName);
+                if (sheets.Count == 0)
+                {
+                    doc.Editor.WriteMessage("\nPXIE: Plik nie zawiera żadnych arkuszy.\n");
+                    return;
+                }
+
+                var sheetDlg = new SheetPickerDialog(sheets);
+                if (AcApp.ShowModalWindow(AcApp.MainWindow.Handle, sheetDlg, false) != true) return;
+
+                string selectedSheet = sheetDlg.SelectedSheet;
+
+                // Krok 2: parsuj wybrany arkusz
                 string log;
-                var piles = PunchingParser.Parse(fileDlg.FileName, out log);
+                var piles = PunchingParser.Parse(fileDlg.FileName, selectedSheet, out log);
 
                 if (piles.Count == 0)
                 {
                     doc.Editor.WriteMessage($"\nPXIE: Nie wczytano pali.\n{log}\n");
                     System.Windows.MessageBox.Show(
-                        $"Nie znaleziono danych pali.\n\nLog parsera:\n{log}",
+                        $"Nie znaleziono danych pali w arkuszu '{selectedSheet}'.\n\nLog parsera:\n{log}",
                         "Wczytaj Punching", System.Windows.MessageBoxButton.OK,
                         System.Windows.MessageBoxImage.Warning);
                     return;
                 }
 
                 SessionData.Piles = piles;
-                doc.Editor.WriteMessage($"\nPXIE: Wczytano {piles.Count} pali. Gotowy do Assign PH.\n");
+                doc.Editor.WriteMessage($"\nPXIE: Wczytano {piles.Count} pali z arkusza '{selectedSheet}'. Gotowy do Assign PH.\n");
                 System.Windows.MessageBox.Show(
-                    $"Wczytano {piles.Count} pali.\nGotowy do Assign PH.",
+                    $"Wczytano {piles.Count} pali z arkusza '{selectedSheet}'.\nGotowy do Assign PH.",
                     "Wczytaj Punching", System.Windows.MessageBoxButton.OK,
                     System.Windows.MessageBoxImage.Information);
             }
