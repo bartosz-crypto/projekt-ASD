@@ -206,10 +206,32 @@ namespace AsdRcSlab
                 PhAssigner.AssignAll(SessionData.Piles);
                 SessionData.PhAssigned = true;
 
+                doc.Editor.WriteMessage($"\nPAA: Przypisano PH dla {SessionData.Piles.Count} pali.\n");
+
+                // Pokaż wyniki i zapytaj czy podpisać rysunek
                 var dlg = new PhAssignResultsDialog(SessionData.Piles);
                 AcApp.ShowModalWindow(AcApp.MainWindow.Handle, dlg, false);
 
-                doc.Editor.WriteMessage($"\nPAA: Przypisano PH dla {SessionData.Piles.Count} pali.\n");
+                // Annotuj rysunek (znajdź kółka i podpisz PH)
+                var res = DrawingAnnotator.Annotate(SessionData.Piles);
+                doc.Editor.WriteMessage($"\nPAA: {res.Log.Replace("\n", " ")}");
+
+                if (res.NotFound.Count > 0)
+                {
+                    System.Windows.MessageBox.Show(
+                        $"Podpisano {res.Annotated.Count} pali na rysunku.\n\n" +
+                        $"Nie znaleziono kółek/etykiet dla:\n{string.Join("\n", res.NotFound)}",
+                        "Assign PH — wyniki", System.Windows.MessageBoxButton.OK,
+                        System.Windows.MessageBoxImage.Warning);
+                }
+                else if (res.Annotated.Count > 0)
+                {
+                    System.Windows.MessageBox.Show(
+                        $"Podpisano {res.Annotated.Count} pali na rysunku.\n" +
+                        $"Warstwy: {DrawingAnnotator.LayerPhText} (etykiety), {DrawingAnnotator.LayerPhHatch} (hatch).",
+                        "Assign PH — OK", System.Windows.MessageBoxButton.OK,
+                        System.Windows.MessageBoxImage.Information);
+                }
             }
             catch (System.Exception ex)
             {

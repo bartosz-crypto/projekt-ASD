@@ -8,7 +8,6 @@ namespace AsdRcSlab
 {
     public static class PunchingParser
     {
-        // Zwraca liste nazw arkuszy z pliku
         public static List<string> GetSheetNames(string xlsxPath)
         {
             using (var pkg = new ExcelPackage(new FileInfo(xlsxPath)))
@@ -30,42 +29,32 @@ namespace AsdRcSlab
                     return piles;
                 }
 
-                int lastRow = ws.Dimension?.End.Row ?? 1;
-                int lastCol = ws.Dimension?.End.Column ?? 50;
+                int lastRow = ws.Dimension?.End.Row    ?? 1;
+                int lastCol = ws.Dimension?.End.Column ?? 80;
 
-                log.AppendLine($"Arkusz: '{ws.Name}', wiersze: {lastRow}, kolumny: {lastCol}");
+                log.AppendLine($"Arkusz: '{sheetName}', wiersze: {lastRow}, kolumny: {lastCol}");
 
-                // Znajdz wiersz naglowkowy — szukaj "Pile id" lub "Pile ID"
-                int headerRow = -1;
-                int colId = -1, colShear = -1, colUtil = -1;
+                // ── Krok 1: Znajdź kolumnę ACTION (ADD H.../NO ACTION) ────────────────
+                // Szuka ostatniej kolumny zawierającej wartości akcji w górnych wierszach
+                int colAction = -1;
 
-                for (int r = 1; r <= Math.Min(20, lastRow); r++)
+                // Skanuj wiersze danych (7–30) by znaleźć kolumnę z ADD H.../NO ACTION
+                for (int c = lastCol; c >= 1; c--)
                 {
-                    for (int c = 1; c <= Math.Min(lastCol, 60); c++)
+                    bool found = false;
+                    for (int r = 7; r <= Math.Min(30, lastRow); r++)
                     {
-                        string val = ws.Cells[r, c].GetValue<string>()?.Trim() ?? "";
-
-                        if (colId < 0 &&
-                            (val.Equals("Pile id", StringComparison.OrdinalIgnoreCase) ||
-                             val.Equals("Pile ID", StringComparison.OrdinalIgnoreCase) ||
-                             val.Equals("Pile No", StringComparison.OrdinalIgnoreCase)))
-                        { headerRow = r; colId = c; }
-
-                        if (colShear < 0 &&
-                            val.IndexOf("SHEAR CONDITION", StringComparison.OrdinalIgnoreCase) >= 0)
-                        { colShear = c; }
-
-                        if (colUtil < 0 && val.Trim() == "%")
-                        { colUtil = c; }
+                        string v = ws.Cells[r, c].GetValue<string>()?.Trim() ?? "";
+                        if (IsActionValue(v)) { found = true; break; }
                     }
-                    if (headerRow > 0 && colShear > 0 && colUtil > 0) break;
+                    if (found) { colAction = c; break; }
                 }
 
-                if (headerRow < 0)
+                if (colAction < 0)
                 {
-                    log.AppendLine("Nie znaleziono wiersza nagłówkowego (szukano 'Pile id').");
-                    log.AppendLine("Pierwsze 5 wierszy kol 1-5:");
-                    for (int r = 1; r <= Math.Min(5, lastRow); r++)
+                    log.AppendLine("Nie znaleziono kolumny ACTION (ADD H.../NO ACTION).");
+                    // Dump pierwszych 8 wierszy col 1-5 dla diagnostyki
+                    for (int r = 1; r <= Math.Min(8, lastRow); r++)
                     {
                         var vals = Enumerable.Range(1, 5)
                             .Select(c => ws.Cells[r, c].GetValue<string>() ?? "");
@@ -74,56 +63,85 @@ namespace AsdRcSlab
                     parseLog = log.ToString();
                     return piles;
                 }
+                log.AppendLine($"Kolumna ACTION: {colAction}");
 
-                log.AppendLine($"Nagłówek: wiersz {headerRow}, Pile id=kol{colId}, ShearCond=kol{colShear}, %=kol{colUtil}");
-
-                // Czytaj wiersze z danymi
-                for (int r = headerRow + 1; r <= lastRow; r++)
+                // ── Krok 2: Zbierz etykiety lokalizacji z wierszy nagłówkowych (1–6) ──
+                // Etykiety sekcji: "INTERNAL PILES", "CORNER PILES", "EDGE PILES"
+                var locationLabels = new List<(int Row, string Location)>();
+                for (int r = 1; r <= Math.Min(6, lastRow); r++)
                 {
-                    string id = ws.Cells[r, colId].GetValue<string>()?.Trim() ?? "";
+                    for (int c = 1; c <= Math.Min(lastCol, 60); c++)
+                    {
+                        string v = ws.Cells[r, c].GetValue<string>()?.Trim()?.ToUpperInvariant() ?? "";
+                        string loc = "";
+                        if (v.Contains("INTERNAL PILES")) loc = "INT";
+                        else if (v.Contains("CORNER PILES")) loc = "CORNER";
+                        else if (v.Contains("EDGE PILES"))   loc = "EDGE";
 
-                    // Pomijaj puste, sekcje ("EDGE PILES", "INTERNAL PILES" itp.)
-                    if (string.IsNullOrWhiteSpace(id)) continue;
-                    if (id.EndsWith("PILES", StringComparison.OrdinalIgnoreCase)) continue;
-                    if (id.Equals("Pile id", StringComparison.OrdinalIgnoreCase)) continue;
+                        if (loc != "" && !locationLabels.Any(l => l.Location == loc))
+                        {
+                            locationLabels.Add((r, loc));
+                            break;
+                        }
+                    }
+                }
 
-                    // Util %
+                log.AppendLine($"Znalezione etykiety lokalizacji: {string.Join(", ", locationLabels.Select(l => $"R{l.Row}={l.Location}"))}");
+
+                // Etykiety posortowane malejąco (ostatni wiersz = najblizej danych = sekcja 1)
+                var orderedLabels = locationLabels.OrderByDescending(l => l.Row).Select(l => l.Location).ToList();
+                // orderedLabels[0] = sekcja 1, [1] = sekcja 2, itd.
+
+                // Fallback: jeśli brak etykiet, przypisz domyślnie INT
+                if (orderedLabels.Count == 0) orderedLabels.Add("INT");
+
+                // ── Krok 3: Czytaj wiersze danych ────────────────────────────────────
+                int sectionIndex = 0;
+
+                for (int r = 7; r <= lastRow; r++)
+                {
+                    string col1 = ws.Cells[r, 1].GetValue<string>()?.Trim() ?? "";
+
+                    // Separator sekcji ('o' lub 'O' lub pusta linia po kilku danych)
+                    if (col1 == "o" || col1 == "O")
+                    {
+                        sectionIndex++;
+                        continue;
+                    }
+
+                    // Pomijaj wiersze nagłówkowe w sekcjach (NIB REDUCTION, L [mm] itp.)
+                    if (string.IsNullOrWhiteSpace(col1))    continue;
+                    if (!IsPileId(col1))                    continue;
+
+                    string pileId = col1;
+
+                    // Lokalizacja z bieżącej sekcji
+                    string loc = sectionIndex < orderedLabels.Count
+                        ? orderedLabels[sectionIndex]
+                        : orderedLabels[orderedLabels.Count - 1];
+
+                    // Action
+                    string action = ws.Cells[r, colAction].GetValue<string>()?.Trim() ?? "NO ACTION";
+
+                    // Utylizacja z kolumny 9 (lub szukaj numerycznej wartości w okolicy)
                     double util = 0;
-                    if (colUtil > 0)
-                    {
-                        string uStr = ws.Cells[r, colUtil].GetValue<string>()?.Trim()
-                                      ?? ws.Cells[r, colUtil].GetValue<double>().ToString();
-                        uStr = uStr.Replace("%", "").Replace(",", ".").Trim();
-                        double.TryParse(uStr, System.Globalization.NumberStyles.Any,
-                            System.Globalization.CultureInfo.InvariantCulture, out util);
-                    }
-
-                    // Location — z kolumny SHEAR CONDITION
-                    string loc = "";
-                    if (colShear > 0)
-                    {
-                        string raw = ws.Cells[r, colShear].GetValue<string>()?.Trim() ?? "";
-                        loc = NormalizeLocation(raw);
-                    }
-
-                    if (string.IsNullOrEmpty(loc)) loc = "INT"; // fallback
+                    TryReadDouble(ws.Cells[r, 9].GetValue<string>(), out util);
 
                     piles.Add(new PileData
                     {
-                        PileId       = id,
-                        UtilPct      = util,
-                        LocationType = loc
+                        PileId         = pileId,
+                        UtilPct        = util,
+                        LocationType   = loc,
+                        PunchingAction = action
                     });
                 }
 
                 log.AppendLine($"Wczytano {piles.Count} pali.");
                 if (piles.Count > 0)
                 {
-                    int edge   = piles.Count(p => p.LocationType == "EDGE");
-                    int corner = piles.Count(p => p.LocationType == "CORNER");
-                    int intern = piles.Count(p => p.LocationType == "INT");
-                    int re     = piles.Count(p => p.LocationType == "REENTRANT");
-                    log.AppendLine($"  INT={intern}, EDGE={edge}, CORNER={corner}, REENTRANT={re}");
+                    var groups = piles.GroupBy(p => p.LocationType);
+                    foreach (var g in groups)
+                        log.AppendLine($"  {g.Key}: {g.Count()} pali — akcje: {string.Join(", ", g.Select(p => p.PunchingAction).Distinct())}");
                 }
             }
 
@@ -131,24 +149,38 @@ namespace AsdRcSlab
             return piles;
         }
 
-        private static string NormalizeLocation(string raw)
+        // ── Pomocnicze ──────────────────────────────────────────────────────────────
+
+        private static bool IsActionValue(string v)
         {
-            if (string.IsNullOrEmpty(raw)) return "";
-            string u = raw.Trim().ToUpperInvariant();
+            if (string.IsNullOrEmpty(v)) return false;
+            string u = v.ToUpperInvariant();
+            return u.StartsWith("ADD H") || u == "NO ACTION";
+        }
 
-            // Format z PLOT.xlsx: "E", "C", "I"
-            if (u == "E")  return "EDGE";
-            if (u == "C")  return "CORNER";
-            if (u == "I")  return "INT";
-            if (u == "RE") return "REENTRANT";
+        /// <summary>Czy wartość wygląda jak pile ID: 4-cyfrowa lub alfanumeryczna, nie jest nagłówkiem sekcji.</summary>
+        private static bool IsPileId(string val)
+        {
+            if (string.IsNullOrWhiteSpace(val)) return false;
+            string u = val.Trim().ToUpperInvariant();
+            // Odrzuć znane nagłówki
+            if (u.EndsWith("PILES"))    return false;
+            if (u.Contains("REDUC"))    return false;
+            if (u.Contains("SECTION")) return false;
+            if (u == "]" || u == "O" || u == "I" || u == "V" || u == "C") return false;
+            // Akceptuj liczby lub krótkie kody alfanumeryczne
+            if (int.TryParse(u, out _)) return true;
+            if (u.Length >= 2 && u.Length <= 8 && u.All(ch => char.IsLetterOrDigit(ch) || ch == '-'))
+                return true;
+            return false;
+        }
 
-            // Pelne slowa
-            if (u.Contains("REENT") || u.Contains("RE-ENT")) return "REENTRANT";
-            if (u.Contains("CORN"))  return "CORNER";
-            if (u.Contains("EDGE"))  return "EDGE";
-            if (u.Contains("INT"))   return "INT";
-
-            return u;
+        private static bool TryReadDouble(string s, out double val)
+        {
+            if (string.IsNullOrEmpty(s)) { val = 0; return false; }
+            s = s.Replace(",", ".").Replace("%", "").Trim();
+            return double.TryParse(s, System.Globalization.NumberStyles.Any,
+                System.Globalization.CultureInfo.InvariantCulture, out val);
         }
     }
 }
