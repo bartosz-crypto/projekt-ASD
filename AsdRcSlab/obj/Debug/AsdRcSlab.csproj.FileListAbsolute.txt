@@ -41,3 +41,5 @@ C:\Users\Dell\Desktop\ClaudeCode\AsdRcSlab\obj\Debug\BmmResultsDialog.g.cs
 C:\Users\Dell\Desktop\ClaudeCode\AsdRcSlab\obj\Debug\LapCalculatorDialog.g.cs
 C:\Users\Dell\Desktop\ClaudeCode\AsdRcSlab\obj\Debug\ReinforcementStubDialog.g.cs
 C:\Users\Dell\Desktop\ClaudeCode\AsdRcSlab\bin\Publish\EPPlus.dll
+C:\Users\Dell\Desktop\ClaudeCode\AsdRcSlab\obj\Debug\PhAssignResultsDialog.baml
+C:\Users\Dell\Desktop\ClaudeCode\AsdRcSlab\obj\Debug\PhAssignResultsDialog.g.cs

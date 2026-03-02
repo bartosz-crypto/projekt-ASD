@@ -137,28 +137,130 @@ namespace AsdRcSlab
         public void CmdWczytajPunching()
         {
             var doc = AcApp.DocumentManager.MdiActiveDocument;
-            doc.Editor.WriteMessage("\nTODO: Wczytaj Punching — import PUNCHING_NEW_TEMPLATE_v2.xlsx\n");
+
+            var fileDlg = new Microsoft.Win32.OpenFileDialog
+            {
+                Title  = "Wybierz plik Punching",
+                Filter = "Excel (*.xlsx)|*.xlsx"
+            };
+            if (fileDlg.ShowDialog() != true) return;
+
+            try
+            {
+                string log;
+                var piles = PunchingParser.Parse(fileDlg.FileName, out log);
+
+                if (piles.Count == 0)
+                {
+                    doc.Editor.WriteMessage($"\nPXIE: Nie wczytano pali.\n{log}\n");
+                    System.Windows.MessageBox.Show(
+                        $"Nie znaleziono danych pali.\n\nLog parsera:\n{log}",
+                        "Wczytaj Punching", System.Windows.MessageBoxButton.OK,
+                        System.Windows.MessageBoxImage.Warning);
+                    return;
+                }
+
+                SessionData.Piles = piles;
+                doc.Editor.WriteMessage($"\nPXIE: Wczytano {piles.Count} pali. Gotowy do Assign PH.\n");
+                System.Windows.MessageBox.Show(
+                    $"Wczytano {piles.Count} pali.\nGotowy do Assign PH.",
+                    "Wczytaj Punching", System.Windows.MessageBoxButton.OK,
+                    System.Windows.MessageBoxImage.Information);
+            }
+            catch (System.Exception ex)
+            {
+                doc.Editor.WriteMessage($"\nPXIE błąd: {ex.Message}\n");
+            }
         }
 
         [CommandMethod("ASD-PAA")]
         public void CmdAssignPH()
         {
             var doc = AcApp.DocumentManager.MdiActiveDocument;
-            doc.Editor.WriteMessage("\nTODO: Assign PH — logika PH1-PH9 + REENTRANT\n");
+
+            if (SessionData.Piles == null || SessionData.Piles.Count == 0)
+            {
+                doc.Editor.WriteMessage("\nPAA: Najpierw użyj 'Wczytaj Punching' (ASD-PXIE).\n");
+                System.Windows.MessageBox.Show("Najpierw wczytaj dane pali przyciskiem 'Wczytaj Punching'.",
+                    "Assign PH", System.Windows.MessageBoxButton.OK,
+                    System.Windows.MessageBoxImage.Warning);
+                return;
+            }
+
+            try
+            {
+                PhAssigner.AssignAll(SessionData.Piles);
+                SessionData.PhAssigned = true;
+
+                var dlg = new PhAssignResultsDialog(SessionData.Piles);
+                AcApp.ShowModalWindow(AcApp.MainWindow.Handle, dlg, false);
+
+                doc.Editor.WriteMessage($"\nPAA: Przypisano PH dla {SessionData.Piles.Count} pali.\n");
+            }
+            catch (System.Exception ex)
+            {
+                doc.Editor.WriteMessage($"\nPAA błąd: {ex.Message}\n");
+            }
         }
 
         [CommandMethod("ASD-PHR")]
         public void CmdPHReport()
         {
             var doc = AcApp.DocumentManager.MdiActiveDocument;
-            doc.Editor.WriteMessage("\nTODO: PH Report — eksport PH_Report.xlsx\n");
+
+            if (!SessionData.PhAssigned || SessionData.Piles == null)
+            {
+                doc.Editor.WriteMessage("\nPHR: Najpierw użyj Assign PH.\n");
+                System.Windows.MessageBox.Show("Najpierw wykonaj Assign PH.",
+                    "PH Report", System.Windows.MessageBoxButton.OK,
+                    System.Windows.MessageBoxImage.Warning);
+                return;
+            }
+
+            // Otwiera dialog z Assign PH (zawiera przycisk Eksportuj do Excel)
+            var dlg = new PhAssignResultsDialog(SessionData.Piles);
+            AcApp.ShowModalWindow(AcApp.MainWindow.Handle, dlg, false);
         }
 
         [CommandMethod("ASD-PHV")]
         public void CmdWalidujPH()
         {
             var doc = AcApp.DocumentManager.MdiActiveDocument;
-            doc.Editor.WriteMessage("\nTODO: Waliduj PH — R77, R79, duplikaty\n");
+
+            if (!SessionData.PhAssigned || SessionData.Piles == null)
+            {
+                doc.Editor.WriteMessage("\nPHV: Najpierw wykonaj Assign PH.\n");
+                return;
+            }
+
+            var sb = new System.Text.StringBuilder();
+            sb.AppendLine("PHV — WALIDACJA PH:");
+            sb.AppendLine(new string('-', 40));
+
+            // R77: brak EXCEED
+            var exceed = SessionData.Piles.Where(p => p.PhAction == "EXCEED").ToList();
+            if (exceed.Any())
+                sb.AppendLine($"R77: FAIL — Util > 100%: {string.Join(", ", exceed.Select(p => p.PileId))}");
+            else
+                sb.AppendLine("R77: OK — Brak pali z Util > 100%");
+
+            // R79: brak orphan (puste ApplicablePileIds)
+            var orphan = SessionData.Piles.Where(p => p.ApplicablePileIds == null || p.ApplicablePileIds.Count == 0).ToList();
+            if (orphan.Any())
+                sb.AppendLine($"R79: FAIL — Orphan PH: {string.Join(", ", orphan.Select(p => p.PileId))}");
+            else
+                sb.AppendLine("R79: OK — Wszystkie pale mają ApplicablePileIds");
+
+            // R27: duplikaty PileId
+            var dupes = SessionData.Piles.GroupBy(p => p.PileId).Where(g => g.Count() > 1).Select(g => g.Key).ToList();
+            if (dupes.Any())
+                sb.AppendLine($"R27: FAIL — Duplikaty: {string.Join(", ", dupes)}");
+            else
+                sb.AppendLine("R27: OK — Brak duplikatów Pile ID");
+
+            doc.Editor.WriteMessage($"\n{sb}\n");
+            System.Windows.MessageBox.Show(sb.ToString(), "Waliduj PH",
+                System.Windows.MessageBoxButton.OK, System.Windows.MessageBoxImage.Information);
         }
 
         // ── PANEL 4: QA VALIDATOR ─────────────────────────────────────────────
