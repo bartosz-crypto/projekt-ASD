@@ -29,16 +29,9 @@ C:\Users\Dell\Desktop\ClaudeCode\AsdRcSlab\bin\Publish\AsdRcSlab.dll
 C:\Users\Dell\Desktop\ClaudeCode\AsdRcSlab\bin\Publish\AsdRcSlab.pdb
 C:\Users\Dell\Desktop\ClaudeCode\AsdRcSlab\bin\Publish\ClosedXML.dll
 C:\Users\Dell\Desktop\ClaudeCode\AsdRcSlab\bin\Publish\DocumentFormat.OpenXml.dll
-C:\Users\Dell\Desktop\ClaudeCode\AsdRcSlab\bin\Publish\ExcelNumberFormat.dll
-C:\Users\Dell\Desktop\ClaudeCode\AsdRcSlab\bin\Publish\Irony.dll
 C:\Users\Dell\Desktop\ClaudeCode\AsdRcSlab\bin\Publish\Newtonsoft.Json.dll
 C:\Users\Dell\Desktop\ClaudeCode\AsdRcSlab\bin\Publish\SixLabors.Fonts.dll
-C:\Users\Dell\Desktop\ClaudeCode\AsdRcSlab\bin\Publish\System.Buffers.dll
-C:\Users\Dell\Desktop\ClaudeCode\AsdRcSlab\bin\Publish\System.IO.Packaging.dll
 C:\Users\Dell\Desktop\ClaudeCode\AsdRcSlab\bin\Publish\System.Memory.dll
-C:\Users\Dell\Desktop\ClaudeCode\AsdRcSlab\bin\Publish\System.Numerics.Vectors.dll
-C:\Users\Dell\Desktop\ClaudeCode\AsdRcSlab\bin\Publish\System.Runtime.CompilerServices.Unsafe.dll
-C:\Users\Dell\Desktop\ClaudeCode\AsdRcSlab\bin\Publish\XLParser.dll
 C:\Users\Dell\Desktop\ClaudeCode\AsdRcSlab\obj\Debug\SettingsDialog.baml
 C:\Users\Dell\Desktop\ClaudeCode\AsdRcSlab\obj\Debug\SettingsDialog.g.cs
 C:\Users\Dell\Desktop\ClaudeCode\AsdRcSlab\obj\Debug\BmmResultsDialog.baml
@@ -47,3 +40,4 @@ C:\Users\Dell\Desktop\ClaudeCode\AsdRcSlab\obj\Debug\ReinforcementStubDialog.bam
 C:\Users\Dell\Desktop\ClaudeCode\AsdRcSlab\obj\Debug\BmmResultsDialog.g.cs
 C:\Users\Dell\Desktop\ClaudeCode\AsdRcSlab\obj\Debug\LapCalculatorDialog.g.cs
 C:\Users\Dell\Desktop\ClaudeCode\AsdRcSlab\obj\Debug\ReinforcementStubDialog.g.cs
+C:\Users\Dell\Desktop\ClaudeCode\AsdRcSlab\bin\Publish\EPPlus.dll

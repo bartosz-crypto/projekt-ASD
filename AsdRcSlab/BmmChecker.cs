@@ -1,6 +1,7 @@
-using ClosedXML.Excel;
+using OfficeOpenXml;
 using System;
 using System.Collections.Generic;
+using System.IO;
 using System.Linq;
 
 namespace AsdRcSlab
@@ -18,17 +19,17 @@ namespace AsdRcSlab
         public BmmRuleResult R95 { get; set; }  // Multipliers > 1
         public BmmRuleResult R81 { get; set; }  // Min dia BOTTOM
         public BmmRuleResult R83 { get; set; }  // Min dia TOP
-        public BmmRuleResult R92 { get; set; }  // Waga ±3%
+        public BmmRuleResult R92 { get; set; }  // Kolumna Type wypelniona
     }
 
     public static class BmmChecker
     {
         public static BmmResult CheckAll(string xlsxPath)
         {
-            using (var wb = new XLWorkbook(xlsxPath))
+            using (var package = new ExcelPackage(new FileInfo(xlsxPath)))
             {
-                var wsBottom = FindSheet(wb, "BOTTOM", "Bot", "B1", "Bottom");
-                var wsTop    = FindSheet(wb, "TOP",    "Top", "T1", "Top");
+                var wsBottom = FindSheet(package, "BOTTOM", "Bot", "B1");
+                var wsTop    = FindSheet(package, "TOP",    "Top", "T1");
 
                 var bottomRows = wsBottom != null ? ReadBarsFromSheet(wsBottom) : new List<BarRow>();
                 var topRows    = wsTop    != null ? ReadBarsFromSheet(wsTop)    : new List<BarRow>();
@@ -40,35 +41,36 @@ namespace AsdRcSlab
                     R95 = CheckMultipliers(allRows),
                     R81 = CheckMinDia(bottomRows, minDia: 10, ruleId: "R81", label: "BOTTOM"),
                     R83 = CheckMinDia(topRows,    minDia: 12, ruleId: "R83", label: "TOP"),
-                    R92 = CheckWeightTolerance(allRows)
+                    R92 = CheckTypeFilled(allRows)
                 };
             }
         }
 
         // ── Pomocnicze ───────────────────────────────────────────────────────
 
-        private static IXLWorksheet FindSheet(XLWorkbook wb, params string[] candidates)
+        private static ExcelWorksheet FindSheet(ExcelPackage pkg, params string[] candidates)
         {
-            foreach (var ws in wb.Worksheets)
+            foreach (var ws in pkg.Workbook.Worksheets)
                 foreach (var name in candidates)
                     if (ws.Name.IndexOf(name, StringComparison.OrdinalIgnoreCase) >= 0)
                         return ws;
             return null;
         }
 
-        private static List<BarRow> ReadBarsFromSheet(IXLWorksheet ws)
+        private static List<BarRow> ReadBarsFromSheet(ExcelWorksheet ws)
         {
             var rows = new List<BarRow>();
+            int lastRow = ws.Dimension?.End.Row ?? 1;
+            int lastCol = ws.Dimension?.End.Column ?? 20;
 
-            // Znajdź wiersz nagłówkowy (szukaj "Mark" lub "Type")
-            int headerRow = -1;
-            int colMark = -1, colType = -1, colNoMbrs = -1;
+            // Znajdz wiersz naglowkowy
+            int headerRow = -1, colMark = -1, colType = -1, colNoMbrs = -1;
 
-            for (int r = 1; r <= Math.Min(10, ws.LastRowUsed()?.RowNumber() ?? 10); r++)
+            for (int r = 1; r <= Math.Min(10, lastRow); r++)
             {
-                for (int c = 1; c <= 20; c++)
+                for (int c = 1; c <= lastCol; c++)
                 {
-                    string cell = ws.Cell(r, c).GetString().Trim();
+                    string cell = ws.Cells[r, c].GetValue<string>()?.Trim() ?? "";
                     if (cell.Equals("Mark", StringComparison.OrdinalIgnoreCase) ||
                         cell.Equals("Bar Mark", StringComparison.OrdinalIgnoreCase))
                     { headerRow = r; colMark = c; }
@@ -85,10 +87,9 @@ namespace AsdRcSlab
 
             if (headerRow < 0 || colMark < 0) return rows;
 
-            int lastRow = ws.LastRowUsed()?.RowNumber() ?? headerRow;
             for (int r = headerRow + 1; r <= lastRow; r++)
             {
-                string markStr = ws.Cell(r, colMark).GetString().Trim();
+                string markStr = ws.Cells[r, colMark].GetValue<string>()?.Trim() ?? "";
                 if (string.IsNullOrEmpty(markStr)) continue;
 
                 var bar = new BarRow { MarkRaw = markStr };
@@ -97,11 +98,13 @@ namespace AsdRcSlab
                     bar.Mark = markInt;
 
                 if (colType > 0)
-                    bar.TypeRaw = ws.Cell(r, colType).GetString().Trim();
+                    bar.TypeRaw = ws.Cells[r, colType].GetValue<string>()?.Trim() ?? "";
 
-                if (colNoMbrs > 0 &&
-                    int.TryParse(ws.Cell(r, colNoMbrs).GetString().Trim(), out int nm))
-                    bar.NoMbrs = nm;
+                if (colNoMbrs > 0)
+                {
+                    string nmStr = ws.Cells[r, colNoMbrs].GetValue<string>()?.Trim() ?? "1";
+                    if (int.TryParse(nmStr, out int nm)) bar.NoMbrs = nm;
+                }
 
                 rows.Add(bar);
             }
@@ -109,7 +112,7 @@ namespace AsdRcSlab
             return rows;
         }
 
-        // ── Reguły ──────────────────────────────────────────────────────────
+        // ── Reguly ──────────────────────────────────────────────────────────
 
         private static BmmRuleResult CheckGaps(List<BarRow> rows)
         {
@@ -134,7 +137,7 @@ namespace AsdRcSlab
                     Details = $"Brak luk. Pręty {marks.First():D2}–{marks.Last():D2} ({marks.Count} szt.)" };
 
             return new BmmRuleResult { RuleId = "R87", Status = "FAIL",
-                Details = $"Luki w numeracji: brakuje nr {string.Join(", ", gaps)}" };
+                Details = $"Luki w numeracji — brakuje nr: {string.Join(", ", gaps)}" };
         }
 
         private static BmmRuleResult CheckMultipliers(List<BarRow> rows)
@@ -152,13 +155,10 @@ namespace AsdRcSlab
         private static BmmRuleResult CheckMinDia(List<BarRow> rows, int minDia,
             string ruleId, string label)
         {
-            var fails = new List<string>();
-            foreach (var r in rows)
-            {
-                int dia = ParseDia(r.TypeRaw);
-                if (dia > 0 && dia < minDia)
-                    fails.Add($"Mark {r.MarkRaw} (H{dia})");
-            }
+            var fails = rows
+                .Where(r => { int d = ParseDia(r.TypeRaw); return d > 0 && d < minDia; })
+                .Select(r => $"Mark {r.MarkRaw} (H{ParseDia(r.TypeRaw)})")
+                .ToList();
 
             if (!fails.Any())
                 return new BmmRuleResult { RuleId = ruleId, Status = "OK",
@@ -168,9 +168,8 @@ namespace AsdRcSlab
                 Details = $"{label} min Ø H{minDia} — niezgodne: {string.Join(", ", fails)}" };
         }
 
-        private static BmmRuleResult CheckWeightTolerance(List<BarRow> rows)
+        private static BmmRuleResult CheckTypeFilled(List<BarRow> rows)
         {
-            // Sprawdza czy pręty mają wypełniony typ — brak danych = WARN
             int noType = rows.Count(r => string.IsNullOrEmpty(r.TypeRaw));
             if (noType > rows.Count / 2)
                 return new BmmRuleResult { RuleId = "R92", Status = "WARN",
@@ -183,7 +182,6 @@ namespace AsdRcSlab
         private static int ParseDia(string type)
         {
             if (string.IsNullOrEmpty(type)) return 0;
-            // "H10", "T10", "R10", "10" → 10
             string digits = new string(type.Where(char.IsDigit).ToArray());
             return int.TryParse(digits, out int d) ? d : 0;
         }

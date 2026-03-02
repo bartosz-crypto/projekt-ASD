@@ -43,9 +43,9 @@
         "net48": {
           "targetAlias": "net48",
           "dependencies": {
-            "ClosedXML": {
+            "EPPlus": {
               "target": "Package",
-              "version": "[0.102.1, )"
+              "version": "[4.5.3.3, )"
             },
             "Microsoft.NETFramework.ReferenceAssemblies": {
               "suppressParent": "All",
