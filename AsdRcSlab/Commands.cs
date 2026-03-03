@@ -1,4 +1,6 @@
 using Autodesk.AutoCAD.Runtime;
+using Autodesk.AutoCAD.DatabaseServices;
+using Autodesk.AutoCAD.EditorInput;
 using AcApp = Autodesk.AutoCAD.ApplicationServices.Application;
 using Newtonsoft.Json;
 using System.IO;
@@ -83,15 +85,108 @@ namespace AsdRcSlab
         [CommandMethod("ASD-GBOT")]
         public void CmdGenerujB1B2()
         {
-            var dlg = new ReinforcementStubDialog(dia: 10, layer: "B1/B2", asBase: 393);
-            AcApp.ShowModalWindow(AcApp.MainWindow.Handle, dlg, false);
+            var doc = AcApp.DocumentManager.MdiActiveDocument;
+            var ed  = doc.Editor;
+
+            var peo = new PromptEntityOptions("\nWskaż obrys płyty (warstwa SD-PILED-RAFT): ");
+            peo.SetRejectMessage("\nWybierz encję.");
+            var per = ed.GetEntity(peo);
+            if (per.Status != PromptStatus.OK) return;
+
+            string validationError = null;
+            using (var tr = doc.Database.TransactionManager.StartTransaction())
+            {
+                var ent = tr.GetObject(per.ObjectId, OpenMode.ForRead) as Entity;
+                if (ent == null)
+                    validationError = "Nie można otworzyć encji.";
+                else if (ent.Layer != "SD-PILED-RAFT")
+                    validationError = "Zaznacz polilinię na warstwie SD-PILED-RAFT.";
+                else if (!(ent is Polyline))
+                    validationError = "Zaznaczona encja nie jest polilinią (LWPolyline).";
+                tr.Commit();
+            }
+
+            if (validationError != null)
+            {
+                System.Windows.MessageBox.Show(validationError, "ASD-GBOT",
+                    System.Windows.MessageBoxButton.OK, System.Windows.MessageBoxImage.Warning);
+                return;
+            }
+
+            if (SessionData.TemplateBarsB.Count == 0)
+            {
+                System.Windows.MessageBox.Show(
+                    "Najpierw utwórz pręty H10 (rbcr_def_bar_bv) i zarejestruj je komendą ASD-GSETUP.",
+                    "ASD-GBOT", System.Windows.MessageBoxButton.OK, System.Windows.MessageBoxImage.Warning);
+                return;
+            }
+
+            var result = ReinforcementGenerator.GenerateBottomAsd(doc, per.ObjectId,
+                SessionData.TemplateBarsB);
+            if (!string.IsNullOrEmpty(result.Error))
+            {
+                ed.WriteMessage($"\nGBOT błąd: {result.Error}\n");
+                System.Windows.MessageBox.Show(result.Error, "ASD-GBOT — błąd",
+                    System.Windows.MessageBoxButton.OK, System.Windows.MessageBoxImage.Error);
+                return;
+            }
+
+            SessionData.LapPositionsB1 = result.LapPositionsX;
+            SessionData.LapPositionsB2 = result.LapPositionsY;
+            ed.WriteMessage($"\nB1/B2: wysyłanie {result.BarsDrawn} prętów do ASD...\n");
         }
 
         [CommandMethod("ASD-GTOP")]
         public void CmdGenerujT1T2()
         {
-            var dlg = new ReinforcementStubDialog(dia: 12, layer: "T1/T2", asBase: 565);
-            AcApp.ShowModalWindow(AcApp.MainWindow.Handle, dlg, false);
+            var doc = AcApp.DocumentManager.MdiActiveDocument;
+            var ed  = doc.Editor;
+
+            var peo = new PromptEntityOptions("\nWskaż obrys płyty (warstwa SD-PILED-RAFT): ");
+            peo.SetRejectMessage("\nWybierz encję.");
+            var per = ed.GetEntity(peo);
+            if (per.Status != PromptStatus.OK) return;
+
+            string validationError = null;
+            using (var tr = doc.Database.TransactionManager.StartTransaction())
+            {
+                var ent = tr.GetObject(per.ObjectId, OpenMode.ForRead) as Entity;
+                if (ent == null)
+                    validationError = "Nie można otworzyć encji.";
+                else if (ent.Layer != "SD-PILED-RAFT")
+                    validationError = "Zaznacz polilinię na warstwie SD-PILED-RAFT.";
+                else if (!(ent is Polyline))
+                    validationError = "Zaznaczona encja nie jest polilinią (LWPolyline).";
+                tr.Commit();
+            }
+
+            if (validationError != null)
+            {
+                System.Windows.MessageBox.Show(validationError, "ASD-GTOP",
+                    System.Windows.MessageBoxButton.OK, System.Windows.MessageBoxImage.Warning);
+                return;
+            }
+
+            if (SessionData.TemplateBarsT.Count == 0)
+            {
+                System.Windows.MessageBox.Show(
+                    "Najpierw utwórz pręty H12 (rbcr_def_bar_bv) i zarejestruj je komendą ASD-GSETUP.",
+                    "ASD-GTOP", System.Windows.MessageBoxButton.OK, System.Windows.MessageBoxImage.Warning);
+                return;
+            }
+
+            var result = ReinforcementGenerator.GenerateTopAsd(doc, per.ObjectId,
+                SessionData.TemplateBarsT,
+                SessionData.LapPositionsB1, SessionData.LapPositionsB2);
+            if (!string.IsNullOrEmpty(result.Error))
+            {
+                ed.WriteMessage($"\nGTOP błąd: {result.Error}\n");
+                System.Windows.MessageBox.Show(result.Error, "ASD-GTOP — błąd",
+                    System.Windows.MessageBoxButton.OK, System.Windows.MessageBoxImage.Error);
+                return;
+            }
+
+            ed.WriteMessage($"\nT1/T2: wysyłanie {result.BarsDrawn} prętów do ASD...\n");
         }
 
         [CommandMethod("ASD-BMM")]
@@ -129,6 +224,110 @@ namespace AsdRcSlab
         {
             var dlg = new LapCalculatorDialog();
             AcApp.ShowModalWindow(AcApp.MainWindow.Handle, dlg, false);
+        }
+
+        /// <summary>
+        /// One-time setup: user selects all H10 template bars with a window, then all H12.
+        /// Bar lengths (1250–6000 mm, step 250) are detected automatically from geometry.
+        /// Must be run before ASD-GBOT / ASD-GTOP.
+        /// </summary>
+        [CommandMethod("ASD-GSETUP")]
+        public void CmdGSetup()
+        {
+            var doc = AcApp.DocumentManager.MdiActiveDocument;
+            var ed  = doc.Editor;
+
+            // ── H10 bars (B1/B2) ─────────────────────────────────────────────────
+            var pso1 = new PromptSelectionOptions();
+            pso1.MessageForAdding = "\nZaznacz oknem wszystkie pręty H10 (zestawienie B1/B2): ";
+            var sel1 = ed.GetSelection(pso1);
+            if (sel1.Status != PromptStatus.OK) return;
+
+            var barsB = ReadTemplateBarPositions(doc.Database, sel1.Value.GetObjectIds());
+            if (barsB.Count == 0)
+            {
+                System.Windows.MessageBox.Show(
+                    "Nie wykryto prętów H10. Upewnij się że zaznaczono pręty ASD (rbcr_def_bar_bv).",
+                    "ASD-GSETUP", System.Windows.MessageBoxButton.OK, System.Windows.MessageBoxImage.Warning);
+                return;
+            }
+            SessionData.TemplateBarsB = barsB;
+
+            // ── H12 bars (T1/T2) ─────────────────────────────────────────────────
+            var pso2 = new PromptSelectionOptions();
+            pso2.MessageForAdding = "\nZaznacz oknem wszystkie pręty H12 (zestawienie T1/T2): ";
+            var sel2 = ed.GetSelection(pso2);
+            if (sel2.Status != PromptStatus.OK) return;
+
+            var barsT = ReadTemplateBarPositions(doc.Database, sel2.Value.GetObjectIds());
+            if (barsT.Count == 0)
+            {
+                System.Windows.MessageBox.Show(
+                    "Nie wykryto prętów H12.",
+                    "ASD-GSETUP", System.Windows.MessageBoxButton.OK, System.Windows.MessageBoxImage.Warning);
+                return;
+            }
+            SessionData.TemplateBarsT = barsT;
+
+            ed.WriteMessage($"\nGSETUP: H10={barsB.Count} prętów, H12={barsT.Count} prętów. Gotowy do ASD-GBOT/ASD-GTOP.\n");
+            System.Windows.MessageBox.Show(
+                $"Zarejestrowano szablony:\n  H10 (B1/B2): {barsB.Count} prętów [{string.Join(", ", System.Linq.Enumerable.Select(barsB.Keys, k => k + "mm"))}]\n  H12 (T1/T2): {barsT.Count} prętów",
+                "ASD-GSETUP", System.Windows.MessageBoxButton.OK, System.Windows.MessageBoxImage.Information);
+        }
+
+        /// <summary>
+        /// Reads bar left-endpoints and lengths from a selection of ASD bar entities.
+        /// Works for LINE entities (exact) and ASD custom entities (bounding-box approximation).
+        /// </summary>
+        private static System.Collections.Generic.Dictionary<int, Autodesk.AutoCAD.Geometry.Point3d>
+            ReadTemplateBarPositions(Database db, ObjectId[] ids)
+        {
+            var dict = new System.Collections.Generic.Dictionary<int, Autodesk.AutoCAD.Geometry.Point3d>();
+            using (var tr = db.TransactionManager.StartTransaction())
+            {
+                foreach (var id in ids)
+                {
+                    try
+                    {
+                        var ent = tr.GetObject(id, OpenMode.ForRead) as Entity;
+                        if (ent == null) continue;
+
+                        Autodesk.AutoCAD.Geometry.Point3d leftPt;
+                        double barLength;
+
+                        if (ent is Line ln)
+                        {
+                            // Exact endpoints for LINE entities
+                            bool startIsLeft = ln.StartPoint.X <= ln.EndPoint.X;
+                            leftPt    = startIsLeft ? ln.StartPoint : ln.EndPoint;
+                            barLength = ln.Length;
+                        }
+                        else
+                        {
+                            // ASD custom entity: use bounding box
+                            Extents3d ext;
+                            try   { ext = ent.GeometricExtents; }
+                            catch { continue; }
+                            double w = ext.MaxPoint.X - ext.MinPoint.X;
+                            double h = ext.MaxPoint.Y - ext.MinPoint.Y;
+                            if (w < h || w < 500) continue; // skip non-horizontal / too short
+                            barLength = w;
+                            leftPt = new Autodesk.AutoCAD.Geometry.Point3d(
+                                ext.MinPoint.X,
+                                (ext.MinPoint.Y + ext.MaxPoint.Y) / 2.0, 0);
+                        }
+
+                        int lenMm = (int)(System.Math.Round(barLength / 250.0) * 250);
+                        if (lenMm < 1000 || lenMm > 7000) continue;
+
+                        if (!dict.ContainsKey(lenMm))
+                            dict[lenMm] = leftPt;
+                    }
+                    catch { }
+                }
+                tr.Commit();
+            }
+            return dict;
         }
 
         // ── PANEL 3: PH CONDITIONS ────────────────────────────────────────────
