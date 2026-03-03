@@ -77,7 +77,7 @@ namespace AsdRcSlab
                 result.TotalTexts   = allTexts.Count;
 
                 // ── 1b. Verify this is a Speedeck piled raft drawing ─────────────────
-                if (!HasSpeeddeckTitle(allTexts))
+                if (!HasSpeeddeckTitle(tr, btr))
                 {
                     result.WrongDrawing = true;
                     result.Log = "Rysunek nie zawiera tytułu 'SPEEDECK PILED RAFT FOUNDATION'.\n" +
@@ -188,11 +188,25 @@ namespace AsdRcSlab
 
         // ── Private helpers ──────────────────────────────────────────────────────────
 
-        private static bool HasSpeeddeckTitle(
-            List<(string Text, Point3d Pos, ObjectId Id, double Height, string Style, string Layer)> texts)
+        private static bool HasSpeeddeckTitle(Transaction tr, BlockTableRecord btr)
         {
-            const string key = "SPEEDECK PILED RAFT FOUNDATION";
-            return texts.Any(t => t.Text.ToUpperInvariant().Contains(key));
+            // Search raw MText/DBText content directly — no stripping needed,
+            // "SPEEDECK" appears as plain literal text regardless of formatting codes.
+            const string key = "SPEEDECK";
+            foreach (ObjectId id in btr)
+            {
+                try
+                {
+                    var ent = tr.GetObject(id, OpenMode.ForRead);
+                    string raw = null;
+                    if (ent is DBText dbt) raw = dbt.TextString;
+                    else if (ent is MText mt) raw = mt.Contents;
+                    if (!string.IsNullOrEmpty(raw) && raw.ToUpperInvariant().Contains(key))
+                        return true;
+                }
+                catch { }
+            }
+            return false;
         }
 
         private static void AddSolidHatch(Transaction tr, Database db,
