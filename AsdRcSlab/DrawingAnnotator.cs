@@ -190,9 +190,11 @@ namespace AsdRcSlab
 
         private static bool HasSpeeddeckTitle(Transaction tr, BlockTableRecord btr)
         {
-            // Search raw MText/DBText content directly — no stripping needed,
-            // "SPEEDECK" appears as plain literal text regardless of formatting codes.
-            const string key = "SPEEDECK";
+            // Search raw MText/DBText content for the reinforcement drawing title.
+            // "REINFORCEMENT DETAILS OF SPEEDECK" appears on one line (before any \P break)
+            // so it is always a literal substring in the raw content — no stripping needed.
+            // This phrase is specific to the detail sheet, not the PLOT layout drawing.
+            const string key = "REINFORCEMENT DETAILS OF SPEEDECK";
             foreach (ObjectId id in btr)
             {
                 try
