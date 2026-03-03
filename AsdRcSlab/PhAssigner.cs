@@ -41,11 +41,14 @@ namespace AsdRcSlab
 
             if (loc == "REENTRANT") return "PH3-RE";
 
+            // Anything that is not "ADD H..." gets no annotation
+            if (!action.StartsWith("ADD H")) return "NO ACTION";
+
             // Wyznaczenie poziomu z action
             int level;
             if      (action.Contains("H16") && action.Contains("@100")) level = 3; // ADD H16@100
             else if (action.Contains("H16") && action.Contains("@200")) level = 2; // ADD H16@200
-            else                                                          level = 1; // ADD H12@200 / NO ACTION / fallback
+            else                                                          level = 1; // ADD H12@200
 
             // Mapa level × location → PH number
             //        INT  EDGE  CORNER
