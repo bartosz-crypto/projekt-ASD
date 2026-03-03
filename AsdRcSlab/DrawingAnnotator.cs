@@ -76,6 +76,15 @@ namespace AsdRcSlab
                 result.TotalCircles = allCircles.Count;
                 result.TotalTexts   = allTexts.Count;
 
+                // ── 1b. Verify this is a Speedeck piled raft drawing ─────────────────
+                if (!HasSpeeddeckTitle(allTexts))
+                {
+                    result.WrongDrawing = true;
+                    result.Log = "Rysunek nie zawiera tytułu 'SPEEDECK PILED RAFT FOUNDATION'.\n" +
+                                 "Upewnij się, że aktywny dokument to właściwy rysunek zbrojenia.";
+                    return result;
+                }
+
                 // ── 2. Detect existing PH annotation style ───────────────────────────
                 string detectedLayer = LayerPhText;
                 string detectedStyle = DefaultTextStyle;
@@ -178,6 +187,13 @@ namespace AsdRcSlab
         }
 
         // ── Private helpers ──────────────────────────────────────────────────────────
+
+        private static bool HasSpeeddeckTitle(
+            List<(string Text, Point3d Pos, ObjectId Id, double Height, string Style, string Layer)> texts)
+        {
+            const string key = "SPEEDECK PILED RAFT FOUNDATION";
+            return texts.Any(t => t.Text.ToUpperInvariant().Contains(key));
+        }
 
         private static void AddSolidHatch(Transaction tr, Database db,
             BlockTableRecord btr, Point3d center, double radius, string phAction)
@@ -324,5 +340,6 @@ namespace AsdRcSlab
         public List<string> Skipped      { get; set; } = new List<string>();
         public List<string> NotFound     { get; set; } = new List<string>();
         public string       Log          { get; set; } = "";
+        public bool         WrongDrawing { get; set; }
     }
 }

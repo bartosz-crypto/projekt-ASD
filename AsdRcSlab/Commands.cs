@@ -216,6 +216,16 @@ namespace AsdRcSlab
                 var res = DrawingAnnotator.Annotate(SessionData.Piles);
                 doc.Editor.WriteMessage($"\nPAA: {res.Log.Replace("\n", " ")}");
 
+                if (res.WrongDrawing)
+                {
+                    System.Windows.MessageBox.Show(
+                        res.Log,
+                        "Assign PH — zły rysunek",
+                        System.Windows.MessageBoxButton.OK,
+                        System.Windows.MessageBoxImage.Warning);
+                    return;
+                }
+
                 if (res.NotFound.Count > 0)
                 {
                     System.Windows.MessageBox.Show(
