@@ -89,7 +89,6 @@ namespace AsdRcSlab
 
             // ── 1. Read slab geometry (read-only transaction) ─────────────────────
             List<Point3d> vertices = null;
-            List<(Point3d Center, double Radius)> piles = null;
             double xMin = 0, yMin = 0, xMax = 0, yMax = 0;
 
             using (var tr = db.TransactionManager.StartTransaction())
@@ -121,69 +120,42 @@ namespace AsdRcSlab
                 }
             }
 
-            // Find piles using fast spatial query (avoids iterating all ModelSpace entities)
-            piles = FindPilesInSlab(doc, xMin, yMin, xMax, yMax, vertices);
-            doc.Editor.WriteMessage($"\nGBOT: {piles.Count} pal w obrysie płyty.");
+            // ── 2. Build DISTRIBUTION command string ─────────────────────────────
+            // ASD DISTRIBUTION takes the bar type from the selected template bar and
+            // distributes it over the specified range, clipping each bar to the slab
+            // boundary and computing lengths automatically. Two calls suffice:
+            //   B1/T1: vertical distribution axis  → horizontal bars across full slab height
+            //   B2/T2: horizontal distribution axis → vertical bars across full slab width
 
-            // ── 2. Build COPY command string ──────────────────────────────────────
-            var lapPosX = new List<double>();
-            var lapPosY = new List<double>();
-            var cmdSb   = new System.Text.StringBuilder();
-            int barCount = 0;
-            int skipped  = 0;
-
-            // B1/T1: horizontal bars — DISTRIBUTION from (x1,y) to (x2,y)
-            double y = yMin + cover;
-            int rowIdx = 0;
-            while (y <= yMax - cover)
+            if (templateBars.Count == 0)
             {
-                var segs = IntersectHorizontal(vertices, y);
-                foreach (var (xStart, xEnd) in segs)
-                {
-                    var bars = SplitSegment(xStart, xEnd, rowIdx, lap, isTop,
-                        piles, isHoriz: true, perpCoord: y,
-                        bottomLaps: isTop ? bottomLapsX : null);
-
-                    foreach (var (x1, x2) in bars)
-                    {
-                        if (!TryGetTemplate(templateBars, x2 - x1, out int lenKey, out Point3d tb))
-                        { skipped++; continue; }
-                        AppendDistribution(cmdSb, tb, lenKey, x1, y, x2, y);
-                        barCount++;
-                    }
-                    for (int i = 0; i < bars.Count - 1; i++)
-                        lapPosX.Add((bars[i].b + bars[i + 1].a) / 2.0);
-                }
-                y += spacing;
-                rowIdx++;
+                result.Error = "Brak szablonów prętów. Uruchom najpierw ASD-GSETUP.";
+                return result;
             }
 
-            // B2/T2: vertical bars — DISTRIBUTION from (x,y1) to (x,y2)
-            // ASD orients the bar along the distribution range direction automatically
-            double x = xMin + cover;
-            rowIdx = 0;
-            while (x <= xMax - cover)
-            {
-                var segs = IntersectVertical(vertices, x);
-                foreach (var (yStart, yEnd) in segs)
-                {
-                    var bars = SplitSegment(yStart, yEnd, rowIdx, lap, isTop,
-                        piles, isHoriz: false, perpCoord: x,
-                        bottomLaps: isTop ? bottomLapsY : null);
+            // Use the first available template bar (just to select bar type via window)
+            var firstEntry = templateBars.First();
+            int lenKey0 = firstEntry.Key;
+            Point3d tb0  = firstEntry.Value;
 
-                    foreach (var (y1, y2) in bars)
-                    {
-                        if (!TryGetTemplate(templateBars, y2 - y1, out int lenKey, out Point3d tb))
-                        { skipped++; continue; }
-                        AppendDistribution(cmdSb, tb, lenKey, x, y1, x, y2);
-                        barCount++;
-                    }
-                    for (int i = 0; i < bars.Count - 1; i++)
-                        lapPosY.Add((bars[i].b + bars[i + 1].a) / 2.0);
-                }
-                x += spacing;
-                rowIdx++;
-            }
+            double xCenter = (xMin + xMax) / 2.0;
+            double yCenter = (yMin + yMax) / 2.0;
+
+            var cmdSb  = new System.Text.StringBuilder();
+
+            // B1/T1: distribute horizontally — axis runs bottom→top of slab
+            AppendDistribution(cmdSb, tb0, lenKey0,
+                xCenter, yMin,   // Start distribution line (bottom)
+                xCenter, yMax);  // End distribution point   (top)
+
+            // B2/T2: distribute vertically — axis runs left→right of slab
+            AppendDistribution(cmdSb, tb0, lenKey0,
+                xMin, yCenter,   // Start distribution line (left)
+                xMax, yCenter);  // End distribution point   (right)
+
+            int barCount = 2; // two DISTRIBUTION calls
+            var lapPosX  = new List<double>();
+            var lapPosY  = new List<double>();
 
             // ── 3. Send commands line-by-line with delays from a background thread.
             // Sending everything at once via SendStringToExecute causes input to land on the
@@ -199,9 +171,9 @@ namespace AsdRcSlab
                 foreach (var v in vertices)
                     dbg.AppendLine($"  ({v.X:F1}, {v.Y:F1})");
                 dbg.AppendLine($"bounds: x=[{xMin:F1},{xMax:F1}]  y=[{yMin:F1},{yMax:F1}]");
-                dbg.AppendLine($"piles: {piles.Count}");
-                dbg.AppendLine($"barCount={barCount}  skipped={skipped}");
-                dbg.AppendLine("--- command string (first 2000 chars) ---");
+                dbg.AppendLine($"xCenter={xCenter:F1}  yCenter={yCenter:F1}");
+                dbg.AppendLine($"template: lenKey={lenKey0}  tb=({tb0.X:F1},{tb0.Y:F1})");
+                dbg.AppendLine("--- command string ---");
                 string cs = cmdSb.ToString();
                 dbg.Append(cs.Length > 2000 ? cs.Substring(0, 2000) : cs);
                 System.IO.File.WriteAllText(
@@ -256,8 +228,8 @@ namespace AsdRcSlab
             result.BarsDrawn     = barCount;
             result.LapPositionsX = lapPosX;
             result.LapPositionsY = lapPosY;
-            result.Log = $"Wysłano {barCount} prętów DISTRIBUTION ({(isTop ? "T1/T2" : "B1/B2")})" +
-                         (skipped > 0 ? $", pominięto {skipped} (brak szablonu w katalogu)." : ".");
+            result.Log = $"Wysłano 2 komendy DISTRIBUTION ({(isTop ? "T1/T2" : "B1/B2")}).";
+
             return result;
         }
 
