@@ -121,11 +121,11 @@ namespace AsdRcSlab
             }
 
             // ── 2. Build DISTRIBUTION command string ─────────────────────────────
-            // ASD DISTRIBUTION takes the bar type from the selected template bar and
-            // distributes it over the specified range, clipping each bar to the slab
-            // boundary and computing lengths automatically. Two calls suffice:
-            //   B1/T1: vertical distribution axis  → horizontal bars across full slab height
-            //   B2/T2: horizontal distribution axis → vertical bars across full slab width
+            // Zone-based approach: scan slab at spacing intervals and group consecutive
+            // scanlines with the same intersection extents into zones. Each zone gets one
+            // DISTRIBUTION call with the correct template bar length.
+            //   B1/T1: scan horizontal lines (Y axis), zone = strip of equal width bars
+            //   B2/T2: scan vertical lines (X axis), zone = strip of equal height bars
 
             if (templateBars.Count == 0)
             {
@@ -133,79 +133,76 @@ namespace AsdRcSlab
                 return result;
             }
 
-            // Use the first available template bar (just to select bar type via window)
-            var firstEntry = templateBars.First();
-            int lenKey0 = firstEntry.Key;
-            Point3d tb0  = firstEntry.Value;
+            var cmdSb    = new System.Text.StringBuilder();
+            int callCount = 0;
+            var dbg = new System.Text.StringBuilder();
 
-            double xCenter = (xMin + xMax) / 2.0;
-            double yCenter = (yMin + yMax) / 2.0;
+            // B1/T1: horizontal bars, distribution axis = vertical
+            var hZones = DetectZones(vertices, yMin + cover, yMax - cover, spacing, isHorizontal: true);
+            dbg.AppendLine($"B1 zones ({hZones.Count}):");
+            foreach (var (xS, xE, yS, yE) in hZones)
+            {
+                double barLen = xE - xS;
+                dbg.AppendLine($"  xS={xS:F0} xE={xE:F0} barLen={barLen:F0}  yS={yS:F0} yE={yE:F0}");
+                int n = AppendZoneDistributions(cmdSb, templateBars,
+                    xS, xE, yS, yE, isHorizontal: true, lap);
+                callCount += n;
+                dbg.AppendLine($"    → {n} call(s)");
+            }
 
-            var cmdSb  = new System.Text.StringBuilder();
+            // B2/T2: vertical bars, distribution axis = horizontal
+            var vZones = DetectZones(vertices, xMin + cover, xMax - cover, spacing, isHorizontal: false);
+            dbg.AppendLine($"B2 zones ({vZones.Count}):");
+            foreach (var (yS, yE, xS, xE) in vZones)
+            {
+                double barLen = yE - yS;
+                dbg.AppendLine($"  yS={yS:F0} yE={yE:F0} barLen={barLen:F0}  xS={xS:F0} xE={xE:F0}");
+                int n = AppendZoneDistributions(cmdSb, templateBars,
+                    yS, yE, xS, xE, isHorizontal: false, lap);
+                callCount += n;
+                dbg.AppendLine($"    → {n} call(s)");
+            }
 
-            // B1/T1: distribute horizontally — axis runs bottom→top of slab
-            AppendDistribution(cmdSb, tb0, lenKey0,
-                xCenter, yMin,   // Start distribution line (bottom)
-                xCenter, yMax);  // End distribution point   (top)
+            var lapPosX = new List<double>();
+            var lapPosY = new List<double>();
 
-            // B2/T2: distribute vertically — axis runs left→right of slab
-            AppendDistribution(cmdSb, tb0, lenKey0,
-                xMin, yCenter,   // Start distribution line (left)
-                xMax, yCenter);  // End distribution point   (right)
-
-            int barCount = 2; // two DISTRIBUTION calls
-            var lapPosX  = new List<double>();
-            var lapPosY  = new List<double>();
-
-            // ── 3. Send commands line-by-line with delays from a background thread.
-            // Sending everything at once via SendStringToExecute causes input to land on the
-            // wrong prompt (dialog or type/method prompts consume inputs before start-point).
-            // Sending one line at a time with per-line delays (500 ms after DISTRIBUTION to let
-            // the "Reinforcement detailing" dialog appear and be closed by AutoCloser, 80 ms
-            // for all other lines) resolves the timing issue.
-            // Debug: dump slab geometry + first commands to temp file for diagnosis
+            // ── Debug dump ────────────────────────────────────────────────────────
             try
             {
-                var dbg = new System.Text.StringBuilder();
-                dbg.AppendLine($"vertices: {vertices.Count}");
+                var header = new System.Text.StringBuilder();
+                header.AppendLine($"vertices: {vertices.Count}");
                 foreach (var v in vertices)
-                    dbg.AppendLine($"  ({v.X:F1}, {v.Y:F1})");
-                dbg.AppendLine($"bounds: x=[{xMin:F1},{xMax:F1}]  y=[{yMin:F1},{yMax:F1}]");
-                dbg.AppendLine($"xCenter={xCenter:F1}  yCenter={yCenter:F1}");
-                dbg.AppendLine($"template: lenKey={lenKey0}  tb=({tb0.X:F1},{tb0.Y:F1})");
-                dbg.AppendLine("--- command string ---");
+                    header.AppendLine($"  ({v.X:F1}, {v.Y:F1})");
+                header.AppendLine($"bounds: x=[{xMin:F1},{xMax:F1}]  y=[{yMin:F1},{yMax:F1}]");
+                header.AppendLine($"cover={cover}  spacing={spacing}  callCount={callCount}");
+                header.Append(dbg);
+                header.AppendLine("--- command string ---");
                 string cs = cmdSb.ToString();
-                dbg.Append(cs.Length > 2000 ? cs.Substring(0, 2000) : cs);
+                header.Append(cs.Length > 3000 ? cs.Substring(0, 3000) : cs);
                 System.IO.File.WriteAllText(
                     System.IO.Path.Combine(System.IO.Path.GetTempPath(), "asd_gbot_debug.txt"),
-                    dbg.ToString());
+                    header.ToString());
             }
             catch { }
 
-            if (barCount > 0)
+            // ── 3. Send commands line-by-line with delays from a background thread ──
+            if (callCount > 0)
             {
                 var lines = cmdSb.ToString().Split('\n');
-                doc.Editor.WriteMessage($"\nGBOT: uruchamianie {barCount} prętów (DISTRIBUTION)...");
+                doc.Editor.WriteMessage($"\nGBOT: {callCount} stref DISTRIBUTION ({(isTop ? "T1/T2" : "B1/B2")})...");
 
-                // 315 bars × ~1.9 s/bar ≈ 10 min; use 20 min to be safe
                 AsdDialogAutoCloser.Start(timeoutMs: 1_200_000);
 
                 System.Threading.Tasks.Task.Run(() =>
                 {
                     for (int li = 0; li < lines.Length; li++)
                     {
-                        // Skip trailing artifact that Split('\n') produces from a trailing '\n'
                         if (li == lines.Length - 1 && lines[li] == "") continue;
 
                         doc.SendStringToExecute(lines[li] + "\n", true, false, false);
 
                         var trimmed = lines[li].Trim();
                         int delayMs;
-                        // Per-bar sequence (8 lines):
-                        //   DISTRIBUTION / w1,y1 / w2,y2 / [blank] / sX,sY / eX,eY / 40 / 200
-                        // After DISTRIBUTION: "Select objects:" prompt
-                        // After [blank]:      dialog 1 "Reinforcement detailing" appears → auto-closed
-                        // After "200":        dialog 2 "Reinforcement description" appears → auto-closed
                         bool nextIsDistrib = li + 1 < lines.Length &&
                             lines[li + 1].Trim().Equals("DISTRIBUTION",
                                 System.StringComparison.OrdinalIgnoreCase);
@@ -219,16 +216,15 @@ namespace AsdRcSlab
                             delayMs = 80;
                         System.Threading.Thread.Sleep(delayMs);
                     }
-                    // Wait for the last bar's "Reinforcement description" dialog to be closed
                     System.Threading.Thread.Sleep(2000);
                     AsdDialogAutoCloser.Stop();
                 });
             }
 
-            result.BarsDrawn     = barCount;
+            result.BarsDrawn     = callCount;
             result.LapPositionsX = lapPosX;
             result.LapPositionsY = lapPosY;
-            result.Log = $"Wysłano 2 komendy DISTRIBUTION ({(isTop ? "T1/T2" : "B1/B2")}).";
+            result.Log = $"Wysłano {callCount} komend DISTRIBUTION ({(isTop ? "T1/T2" : "B1/B2")}).";
 
             return result;
         }
@@ -369,6 +365,72 @@ namespace AsdRcSlab
             return result;
         }
 
+        // ── Zone detection ────────────────────────────────────────────────────────
+
+        /// <summary>
+        /// Scans the slab polygon at <paramref name="scanStep"/> intervals and groups
+        /// consecutive scan positions with the same intersection segments into zones.
+        ///
+        /// isHorizontal=true  → scans horizontal lines (Y varies); returns (xS,xE,yS,yE):
+        ///   xS..xE = bar extent (horizontal), yS..yE = distribution axis (vertical).
+        /// isHorizontal=false → scans vertical lines (X varies); returns (yS,yE,xS,xE):
+        ///   yS..yE = bar extent (vertical), xS..xE = distribution axis (horizontal).
+        /// </summary>
+        private static List<(double segS, double segE, double axisS, double axisE)> DetectZones(
+            List<Point3d> vertices,
+            double scanMin, double scanMax, double scanStep,
+            bool isHorizontal)
+        {
+            var result = new List<(double, double, double, double)>();
+            List<(double a, double b)> curSegs = null;
+            double zoneAxisStart = 0;
+            double zoneAxisEnd   = 0;
+
+            for (double scan = scanMin; scan <= scanMax + 1e-6; scan += scanStep)
+            {
+                var segs = isHorizontal
+                    ? IntersectHorizontal(vertices, scan)
+                    : IntersectVertical(vertices, scan);
+
+                if (segs.Count == 0) continue;
+
+                if (curSegs == null || !SegmentsMatch(curSegs, segs))
+                {
+                    // Flush previous zone
+                    if (curSegs != null)
+                        foreach (var (a, b) in curSegs)
+                            result.Add((a, b, zoneAxisStart, zoneAxisEnd));
+
+                    curSegs       = segs;
+                    zoneAxisStart = scan;
+                    zoneAxisEnd   = scan;
+                }
+                else
+                {
+                    zoneAxisEnd = scan;
+                }
+            }
+
+            // Flush last zone
+            if (curSegs != null)
+                foreach (var (a, b) in curSegs)
+                    result.Add((a, b, zoneAxisStart, zoneAxisEnd));
+
+            return result;
+        }
+
+        private static bool SegmentsMatch(
+            List<(double a, double b)> s1,
+            List<(double a, double b)> s2,
+            double tol = 100.0)
+        {
+            if (s1.Count != s2.Count) return false;
+            for (int i = 0; i < s1.Count; i++)
+                if (Math.Abs(s1[i].a - s2[i].a) > tol || Math.Abs(s1[i].b - s2[i].b) > tol)
+                    return false;
+            return true;
+        }
+
         // ── Bar splitting ─────────────────────────────────────────────────────────
 
         private static List<(double a, double b)> SplitSegment(
@@ -472,6 +534,52 @@ namespace AsdRcSlab
         }
 
         /// <summary>
+        /// Appends one or more DISTRIBUTION commands to cover a zone.
+        /// For zones wider/taller than MaxBarLen, splits into overlapping sub-distributions
+        /// with <paramref name="lap"/> mm overlap (lap joints).
+        ///
+        /// isHorizontal=true  → B1/T1: segStart/segEnd = X extents of each bar,
+        ///                                axisStart/axisEnd = Y range of distribution axis.
+        /// isHorizontal=false → B2/T2: segStart/segEnd = Y extents of each bar,
+        ///                                axisStart/axisEnd = X range of distribution axis.
+        /// Returns number of DISTRIBUTION calls appended.
+        /// </summary>
+        private static int AppendZoneDistributions(System.Text.StringBuilder sb,
+            Dictionary<int, Point3d> templateBars,
+            double segStart, double segEnd,
+            double axisStart, double axisEnd,
+            bool isHorizontal, double lap)
+        {
+            int count = 0;
+            double pos = segStart;
+
+            while (true)
+            {
+                double remaining = segEnd - pos;
+                double barLen = remaining <= MaxBarLen + 1.0
+                    ? RoundUp250(remaining)
+                    : MaxBarLen;
+
+                double barEnd    = pos + barLen;
+                double axisCoord = (pos + barEnd) / 2.0;
+
+                if (TryGetTemplate(templateBars, barLen, out int lk, out Point3d tb))
+                {
+                    if (isHorizontal)
+                        AppendDistribution(sb, tb, lk, axisCoord, axisStart, axisCoord, axisEnd);
+                    else
+                        AppendDistribution(sb, tb, lk, axisStart, axisCoord, axisEnd, axisCoord);
+                    count++;
+                }
+
+                if (remaining <= MaxBarLen + 1.0) break;    // last segment done
+                pos = pos + MaxBarLen - lap;                 // next segment overlaps by lap
+            }
+
+            return count;
+        }
+
+        /// <summary>
         /// Appends a DISTRIBUTION command for one bar (B1/B2/T1/T2).
         /// Template bar: left endpoint at <paramref name="tb"/>, length <paramref name="lenKey"/> mm.
         ///
@@ -497,17 +605,18 @@ namespace AsdRcSlab
         {
             // Window that encloses the template bar (left-to-right = regular window)
             string w1x = (tb.X - 50.0).ToString("F2", _inv);
-            string w1y = (tb.Y - 150.0).ToString("F2", _inv);
+            string w1y = (tb.Y - 30.0).ToString("F2", _inv);
             string w2x = (tb.X + lenKey + 50.0).ToString("F2", _inv);
-            string w2y = (tb.Y + 150.0).ToString("F2", _inv);
+            string w2y = (tb.Y + 30.0).ToString("F2", _inv);
             string sX  = startX.ToString("F2", _inv);
             string sY  = startY.ToString("F2", _inv);
             string eX  = endX.ToString("F2", _inv);
             string eY  = endY.ToString("F2", _inv);
 
             sb.Append("DISTRIBUTION\n");
-            sb.Append(w1x).Append(',').Append(w1y).Append('\n'); // Select objects: corner 1
-            sb.Append(w2x).Append(',').Append(w2y).Append('\n'); // corner 2 → "1 found"
+            sb.Append("W\n");                                      // force Window selection mode
+            sb.Append(w1x).Append(',').Append(w1y).Append('\n'); // first corner
+            sb.Append(w2x).Append(',').Append(w2y).Append('\n'); // second corner → "1 found"
             sb.Append("\n");                                       // end selection
             // [Dialog "Reinforcement detailing" → auto-closed by AsdDialogAutoCloser]
             sb.Append(sX).Append(',').Append(sY).Append('\n');   // Start distribution line
