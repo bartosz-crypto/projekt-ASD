@@ -1,6 +1,7 @@
 using Autodesk.AutoCAD.ApplicationServices;
 using Autodesk.AutoCAD.Colors;
 using Autodesk.AutoCAD.DatabaseServices;
+using Autodesk.AutoCAD.EditorInput;
 using Autodesk.AutoCAD.Geometry;
 using System;
 using System.Collections.Generic;
@@ -110,10 +111,6 @@ namespace AsdRcSlab
                         return result;
                     }
                     GetSlabBounds(vertices, out xMin, out yMin, out xMax, out yMax);
-                    var bt  = (BlockTable)tr.GetObject(db.BlockTableId, OpenMode.ForRead);
-                    var btr = (BlockTableRecord)tr.GetObject(
-                        bt[BlockTableRecord.ModelSpace], OpenMode.ForRead);
-                    piles = FindPilesInSlab(tr, btr, xMin, yMin, xMax, yMax, vertices);
                     tr.Commit();
                 }
                 catch (Exception ex)
@@ -123,6 +120,10 @@ namespace AsdRcSlab
                     return result;
                 }
             }
+
+            // Find piles using fast spatial query (avoids iterating all ModelSpace entities)
+            piles = FindPilesInSlab(doc, xMin, yMin, xMax, yMax, vertices);
+            doc.Editor.WriteMessage($"\nGBOT: {piles.Count} pal w obrysie płyty.");
 
             // ── 2. Build COPY command string ──────────────────────────────────────
             var lapPosX = new List<double>();
@@ -184,20 +185,78 @@ namespace AsdRcSlab
                 rowIdx++;
             }
 
-            // ── 3. Start dialog auto-closer then send commands ────────────────────
-            // Auto-closer runs in background thread:
-            //   "Reinforcement detailing"   → OK     (accepts distribution settings)
-            //   "Reinforcement description" → Cancel  (skips description, bars placed)
+            // ── 3. Send commands line-by-line with delays from a background thread.
+            // Sending everything at once via SendStringToExecute causes input to land on the
+            // wrong prompt (dialog or type/method prompts consume inputs before start-point).
+            // Sending one line at a time with per-line delays (500 ms after DISTRIBUTION to let
+            // the "Reinforcement detailing" dialog appear and be closed by AutoCloser, 80 ms
+            // for all other lines) resolves the timing issue.
+            // Debug: dump slab geometry + first commands to temp file for diagnosis
+            try
+            {
+                var dbg = new System.Text.StringBuilder();
+                dbg.AppendLine($"vertices: {vertices.Count}");
+                foreach (var v in vertices)
+                    dbg.AppendLine($"  ({v.X:F1}, {v.Y:F1})");
+                dbg.AppendLine($"bounds: x=[{xMin:F1},{xMax:F1}]  y=[{yMin:F1},{yMax:F1}]");
+                dbg.AppendLine($"piles: {piles.Count}");
+                dbg.AppendLine($"barCount={barCount}  skipped={skipped}");
+                dbg.AppendLine("--- command string (first 2000 chars) ---");
+                string cs = cmdSb.ToString();
+                dbg.Append(cs.Length > 2000 ? cs.Substring(0, 2000) : cs);
+                System.IO.File.WriteAllText(
+                    System.IO.Path.Combine(System.IO.Path.GetTempPath(), "asd_gbot_debug.txt"),
+                    dbg.ToString());
+            }
+            catch { }
+
             if (barCount > 0)
             {
-                AsdDialogAutoCloser.Start(timeoutMs: 300_000); // 5 min for large slabs
-                doc.SendStringToExecute(cmdSb.ToString(), true, false, false);
+                var lines = cmdSb.ToString().Split('\n');
+                doc.Editor.WriteMessage($"\nGBOT: uruchamianie {barCount} prętów (DISTRIBUTION)...");
+
+                // 315 bars × ~1.9 s/bar ≈ 10 min; use 20 min to be safe
+                AsdDialogAutoCloser.Start(timeoutMs: 1_200_000);
+
+                System.Threading.Tasks.Task.Run(() =>
+                {
+                    for (int li = 0; li < lines.Length; li++)
+                    {
+                        // Skip trailing artifact that Split('\n') produces from a trailing '\n'
+                        if (li == lines.Length - 1 && lines[li] == "") continue;
+
+                        doc.SendStringToExecute(lines[li] + "\n", true, false, false);
+
+                        var trimmed = lines[li].Trim();
+                        int delayMs;
+                        // Per-bar sequence (8 lines):
+                        //   DISTRIBUTION / w1,y1 / w2,y2 / [blank] / sX,sY / eX,eY / 40 / 200
+                        // After DISTRIBUTION: "Select objects:" prompt
+                        // After [blank]:      dialog 1 "Reinforcement detailing" appears → auto-closed
+                        // After "200":        dialog 2 "Reinforcement description" appears → auto-closed
+                        bool nextIsDistrib = li + 1 < lines.Length &&
+                            lines[li + 1].Trim().Equals("DISTRIBUTION",
+                                System.StringComparison.OrdinalIgnoreCase);
+                        if (trimmed.Equals("DISTRIBUTION", System.StringComparison.OrdinalIgnoreCase))
+                            delayMs = 300;
+                        else if (trimmed == "")
+                            delayMs = 500;  // blank ends selection → dialog 1 appears
+                        else if (nextIsDistrib || li == lines.Length - 1)
+                            delayMs = 600;  // "200" → dialog 2 appears
+                        else
+                            delayMs = 80;
+                        System.Threading.Thread.Sleep(delayMs);
+                    }
+                    // Wait for the last bar's "Reinforcement description" dialog to be closed
+                    System.Threading.Thread.Sleep(2000);
+                    AsdDialogAutoCloser.Stop();
+                });
             }
 
             result.BarsDrawn     = barCount;
             result.LapPositionsX = lapPosX;
             result.LapPositionsY = lapPosY;
-            result.Log = $"Wysłano {barCount} prętów ASD ({(isTop ? "T1/T2" : "B1/B2")})" +
+            result.Log = $"Wysłano {barCount} prętów DISTRIBUTION ({(isTop ? "T1/T2" : "B1/B2")})" +
                          (skipped > 0 ? $", pominięto {skipped} (brak szablonu w katalogu)." : ".");
             return result;
         }
@@ -240,7 +299,7 @@ namespace AsdRcSlab
                         out double xMin2, out double yMin2,
                         out double xMax2, out double yMax2);
 
-                    var piles2 = FindPilesInSlab(tr, btr, xMin2, yMin2, xMax2, yMax2, vertices);
+                    var piles2 = new List<(Point3d Center, double Radius)>(); // pile avoidance not used in line-based fallback
                     var lapPosX = new List<double>();
                     var lapPosY = new List<double>();
 
@@ -441,18 +500,30 @@ namespace AsdRcSlab
         }
 
         /// <summary>
-        /// Appends a DISTRIBUTION command for one bar.
+        /// Appends a DISTRIBUTION command for one bar (B1/B2/T1/T2).
         /// Template bar: left endpoint at <paramref name="tb"/>, length <paramref name="lenKey"/> mm.
-        /// Distribution range: from (startX, startY) to (endX, endY).
-        /// For B1/T1 (horizontal): startX≠endX, startY=endY=y.
-        /// For B2/T2 (vertical):   startX=endX=x, startY≠endY.
-        /// ASD orients the bar along the range direction automatically.
-        /// Two modal dialogs are handled by AsdDialogAutoCloser (must be started before).
+        ///
+        /// Uses a short 200 mm distribution range with cover=40 and spacing=200:
+        ///   available = 200 - 2×40 = 120 mm  &lt;  spacing=200  →  exactly 1 bar per call.
+        /// The bar is placed 40 mm from the range start (i.e., at the given start point + 40 mm)
+        /// and extends for lenKey mm in the range direction.
+        /// This avoids the ASD maximum-spacing rejection that occurs with large spacing values.
+        ///
+        /// Two modal dialogs are auto-closed by AsdDialogAutoCloser (must be started before).
+        /// ASD DISTRIBUTION sequence (no pre-selection — bar selected via window):
+        ///   DISTRIBUTION
+        ///   Select objects: w1x,w1y  w2x,w2y  [blank]  → "1 found"
+        ///   [Dialog "Reinforcement detailing" → auto-closed]
+        ///   Start distribution line: startX,startY
+        ///   End distribution point:  endX,endY
+        ///   Position of first bar (mm): 40
+        ///   &lt;number&gt;*&lt;spacing(mm)&gt;: 200
+        ///   [Dialog "Reinforcement description" → auto-closed → bars placed]
         /// </summary>
         private static void AppendDistribution(System.Text.StringBuilder sb, Point3d tb, int lenKey,
             double startX, double startY, double endX, double endY)
         {
-            // Regular window (left→right) to select the template bar
+            // Window that encloses the template bar (left-to-right = regular window)
             string w1x = (tb.X - 50.0).ToString("F2", _inv);
             string w1y = (tb.Y - 150.0).ToString("F2", _inv);
             string w2x = (tb.X + lenKey + 50.0).ToString("F2", _inv);
@@ -463,15 +534,15 @@ namespace AsdRcSlab
             string eY  = endY.ToString("F2", _inv);
 
             sb.Append("DISTRIBUTION\n");
-            sb.Append(w1x).Append(',').Append(w1y).Append('\n'); // window corner 1
-            sb.Append(w2x).Append(',').Append(w2y).Append('\n'); // window corner 2 ("1 found")
-            sb.Append("\n");                                       // end "Select objects:"
-            // ── Dialog "Reinforcement detailing" appears here → auto-closed with OK ──
-            sb.Append(sX).Append(',').Append(sY).Append('\n');   // distribution start point
-            sb.Append(eX).Append(',').Append(eY).Append('\n');   // distribution end point
-            sb.Append("40\n");                                    // cover (mm)
-            sb.Append("200\n");                                   // spacing (mm) → description dialog appears
-            // ── Dialog "Reinforcement description" appears here → auto-closed with IDOK ──
+            sb.Append(w1x).Append(',').Append(w1y).Append('\n'); // Select objects: corner 1
+            sb.Append(w2x).Append(',').Append(w2y).Append('\n'); // corner 2 → "1 found"
+            sb.Append("\n");                                       // end selection
+            // [Dialog "Reinforcement detailing" → auto-closed by AsdDialogAutoCloser]
+            sb.Append(sX).Append(',').Append(sY).Append('\n');   // Start distribution line
+            sb.Append(eX).Append(',').Append(eY).Append('\n');   // End distribution point
+            sb.Append("40\n");                                     // Position of first bar (mm)
+            sb.Append("200\n");                                    // <number>*<spacing(mm)>
+            // [Dialog "Reinforcement description" → auto-closed → bars placed]
         }
 
         // ── AutoCAD draw helpers ──────────────────────────────────────────────────
@@ -487,28 +558,37 @@ namespace AsdRcSlab
         }
 
         private static List<(Point3d Center, double Radius)> FindPilesInSlab(
-            Transaction tr, BlockTableRecord btr,
+            Document doc,
             double xMin, double yMin, double xMax, double yMax,
             List<Point3d> slabVertices)
         {
             var result = new List<(Point3d, double)>();
-            foreach (ObjectId id in btr)
+            try
             {
-                try
+                // Use SelectCrossingWindow with layer filter — uses AutoCAD's spatial index,
+                // much faster than iterating all ModelSpace entities.
+                var filter = new SelectionFilter(new[]
                 {
-                    var ent = tr.GetObject(id, OpenMode.ForRead);
-                    if (ent is Circle c &&
-                        string.Equals(c.Layer, PileLayer, StringComparison.OrdinalIgnoreCase))
+                    new TypedValue((int)DxfCode.Start,      "CIRCLE"),
+                    new TypedValue((int)DxfCode.LayerName,  PileLayer),
+                });
+                var pt1 = new Point3d(xMin, yMin, 0);
+                var pt2 = new Point3d(xMax, yMax, 0);
+                var selRes = doc.Editor.SelectCrossingWindow(pt1, pt2, filter);
+                if (selRes.Status != PromptStatus.OK) return result;
+
+                using (var tr = doc.Database.TransactionManager.StartTransaction())
+                {
+                    foreach (var id in selRes.Value.GetObjectIds())
                     {
-                        var ctr = c.Center;
-                        if (ctr.X >= xMin && ctr.X <= xMax &&
-                            ctr.Y >= yMin && ctr.Y <= yMax &&
-                            PointInPolygon(ctr.X, ctr.Y, slabVertices))
-                            result.Add((ctr, c.Radius));
+                        var c = tr.GetObject(id, OpenMode.ForRead) as Circle;
+                        if (c != null && PointInPolygon(c.Center.X, c.Center.Y, slabVertices))
+                            result.Add((c.Center, c.Radius));
                     }
+                    tr.Commit();
                 }
-                catch { }
             }
+            catch { }
             return result;
         }
 

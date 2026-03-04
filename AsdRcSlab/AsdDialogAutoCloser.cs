@@ -28,7 +28,14 @@ namespace AsdRcSlab
         private static extern bool EnumWindows(EnumWindowsProc lpEnumFunc, System.IntPtr lParam);
 
         [DllImport("user32.dll")]
+        private static extern bool EnumChildWindows(System.IntPtr hWnd, EnumWindowsProc lpEnumFunc, System.IntPtr lParam);
+
+        [DllImport("user32.dll")]
         private static extern bool PostMessage(System.IntPtr hWnd, uint Msg,
+            System.IntPtr wParam, System.IntPtr lParam);
+
+        [DllImport("user32.dll")]
+        private static extern System.IntPtr SendMessage(System.IntPtr hWnd, uint Msg,
             System.IntPtr wParam, System.IntPtr lParam);
 
         [DllImport("user32.dll")]
@@ -48,6 +55,7 @@ namespace AsdRcSlab
         // ── Win32 constants ───────────────────────────────────────────────────────
 
         private const uint WM_COMMAND  = 0x0111;
+        private const uint BM_CLICK    = 0x00F5;
         private const int  IDOK        = 1;
         private const string DialogClass = "#32770";
 
@@ -100,6 +108,9 @@ namespace AsdRcSlab
                 if (cls.ToString() != DialogClass) return true;
 
                 // Close with OK — handles ASD dialogs in any language (English, Polish, etc.)
+                // NOTE: TryClickModuleRadio disabled — was causing unpredictable dialog behaviour.
+                // Zone distribution with spacing=lenKey also places exactly 1 bar, so method
+                // selection is not critical for correct bar count.
                 // Both ASD dialogs are closed with IDOK:
                 //   Dialog 1 (distribution settings) → OK accepts the current settings
                 //   Dialog 2 (bar description)       → OK saves default description
@@ -107,6 +118,31 @@ namespace AsdRcSlab
                 //       the entire DISTRIBUTION command.
                 PostMessage(hwnd, WM_COMMAND, new System.IntPtr(IDOK), System.IntPtr.Zero);
 
+                return true;
+            }, System.IntPtr.Zero);
+        }
+
+        /// <summary>
+        /// Searches child controls of <paramref name="dialogHwnd"/> for a button/radio whose
+        /// text is "Module" (or starts with "Module"/"Moduł" for Polish installs).
+        /// Sends BM_CLICK to it so the Module distribution method is selected before OK.
+        /// </summary>
+        private static void TryClickModuleRadio(System.IntPtr dialogHwnd)
+        {
+            EnumChildWindows(dialogHwnd, (childHwnd, _) =>
+            {
+                var text = new StringBuilder(64);
+                GetWindowText(childHwnd, text, text.Capacity);
+                var t = text.ToString();
+
+                // Match English "Module" or Polish "Moduł" (or any prefix variant)
+                if (t.StartsWith("Module", System.StringComparison.OrdinalIgnoreCase) ||
+                    t.StartsWith("Modu\u0142", System.StringComparison.OrdinalIgnoreCase))
+                {
+                    // SendMessage is synchronous — the click is processed before we proceed to IDOK
+                    SendMessage(childHwnd, BM_CLICK, System.IntPtr.Zero, System.IntPtr.Zero);
+                    return false; // stop child enumeration
+                }
                 return true;
             }, System.IntPtr.Zero);
         }
