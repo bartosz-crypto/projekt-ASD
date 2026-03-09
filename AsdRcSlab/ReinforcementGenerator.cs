@@ -185,38 +185,55 @@ namespace AsdRcSlab
             }
             catch { }
 
-            // ── 3. Send commands line-by-line with delays from a background thread ──
+            // ── 3. Send commands line-by-line with delays ────────────────────────────
+            // ASD's Dialog 1 ("Reinforcement detailing") is semi-modal: AutoCAD keeps
+            // processing the input buffer while the dialog is on screen.  Sending all at
+            // once causes sX,sY / eX,eY / 40 / 200 to be consumed while the dialog is
+            // showing and the buffer is empty by the time ASD asks for the start point.
+            // Fix: send line-by-line; after the blank (end-selection) wait 2 s for Dialog 1
+            // to appear and be dismissed; after "200" wait 3 s for Dialog 2 + bar placement.
+            // All activity is logged to %TEMP%\asd_closers_log.txt.
             if (callCount > 0)
             {
-                var lines = cmdSb.ToString().Split('\n');
+                string sendLogPath = System.IO.Path.Combine(System.IO.Path.GetTempPath(), "asd_closers_log.txt");
                 doc.Editor.WriteMessage($"\nGBOT: {callCount} stref DISTRIBUTION ({(isTop ? "T1/T2" : "B1/B2")})...");
-
                 AsdDialogAutoCloser.Start(timeoutMs: 1_200_000);
 
+                var lines = cmdSb.ToString().Split('\n');
                 System.Threading.Tasks.Task.Run(() =>
                 {
                     for (int li = 0; li < lines.Length; li++)
                     {
-                        if (li == lines.Length - 1 && lines[li] == "") continue;
+                        string line = lines[li];
+                        if (li == lines.Length - 1 && line == "") continue;
 
-                        doc.SendStringToExecute(lines[li] + "\n", true, false, false);
+                        try { System.IO.File.AppendAllText(sendLogPath,
+                            $"[{System.DateTime.Now:HH:mm:ss.fff}] SEND [{li}] '{line}'\r\n"); }
+                        catch { }
 
-                        var trimmed = lines[li].Trim();
+                        doc.SendStringToExecute(line + "\n", true, false, false);
+
+                        string trimmed = line.Trim();
                         int delayMs;
                         bool nextIsDistrib = li + 1 < lines.Length &&
                             lines[li + 1].Trim().Equals("DISTRIBUTION",
                                 System.StringComparison.OrdinalIgnoreCase);
+
                         if (trimmed.Equals("DISTRIBUTION", System.StringComparison.OrdinalIgnoreCase))
                             delayMs = 300;
                         else if (trimmed == "")
-                            delayMs = 500;  // blank ends selection → dialog 1 appears
+                            delayMs = 2000; // blank → Dialog 1 (no Module = no save dialog)
                         else if (nextIsDistrib || li == lines.Length - 1)
-                            delayMs = 600;  // "200" → dialog 2 appears
+                            delayMs = 3000; // "200" → Dialog 2 + bar placement
                         else
                             delayMs = 80;
+
+                        try { System.IO.File.AppendAllText(sendLogPath,
+                            $"[{System.DateTime.Now:HH:mm:ss.fff}] SLEEP {delayMs}ms\r\n"); }
+                        catch { }
+
                         System.Threading.Thread.Sleep(delayMs);
                     }
-                    System.Threading.Thread.Sleep(2000);
                     AsdDialogAutoCloser.Stop();
                 });
             }
@@ -605,18 +622,17 @@ namespace AsdRcSlab
         {
             // Window that encloses the template bar (left-to-right = regular window)
             string w1x = (tb.X - 50.0).ToString("F2", _inv);
-            string w1y = (tb.Y - 30.0).ToString("F2", _inv);
+            string w1y = (tb.Y - 150.0).ToString("F2", _inv);
             string w2x = (tb.X + lenKey + 50.0).ToString("F2", _inv);
-            string w2y = (tb.Y + 30.0).ToString("F2", _inv);
+            string w2y = (tb.Y + 150.0).ToString("F2", _inv);
             string sX  = startX.ToString("F2", _inv);
             string sY  = startY.ToString("F2", _inv);
             string eX  = endX.ToString("F2", _inv);
             string eY  = endY.ToString("F2", _inv);
 
             sb.Append("DISTRIBUTION\n");
-            sb.Append("W\n");                                      // force Window selection mode
-            sb.Append(w1x).Append(',').Append(w1y).Append('\n'); // first corner
-            sb.Append(w2x).Append(',').Append(w2y).Append('\n'); // second corner → "1 found"
+            sb.Append(w1x).Append(',').Append(w1y).Append('\n'); // window corner 1
+            sb.Append(w2x).Append(',').Append(w2y).Append('\n'); // window corner 2 → "1 found"
             sb.Append("\n");                                       // end selection
             // [Dialog "Reinforcement detailing" → auto-closed by AsdDialogAutoCloser]
             sb.Append(sX).Append(',').Append(sY).Append('\n');   // Start distribution line
