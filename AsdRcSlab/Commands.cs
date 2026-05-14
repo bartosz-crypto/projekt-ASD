@@ -3,13 +3,26 @@ using Autodesk.AutoCAD.DatabaseServices;
 using Autodesk.AutoCAD.EditorInput;
 using AcApp = Autodesk.AutoCAD.ApplicationServices.Application;
 using Newtonsoft.Json;
+using System;
+using System.Collections.Generic;
 using System.IO;
 using System.Linq;
+using System.Text;
+using System.Windows;
+using Microsoft.Win32;
 
 namespace AsdRcSlab
 {
     public class Commands
     {
+        private const string TitleBlockName = "A1-BL";
+
+        private static readonly string[] GaiFieldsToCopy = new[]
+        {
+            "CLIENT_1", "CLIENT_2", "CLIENT_3",
+            "PROJ_1",   "PROJ_2",   "PROJ_3"
+        };
+
         // ── PANEL 1: PROJEKT ──────────────────────────────────────────────────
 
         [CommandMethod("ASD-PROJ")]
@@ -64,13 +77,88 @@ namespace AsdRcSlab
         }
 
         [CommandMethod("ASD-GAI")]
-        public void CmdWczytajGA()
+        public void GaCopyAttributes()
         {
-            System.Windows.MessageBox.Show(
-                "GAI — Wczytaj GA będzie dostępne w Sprint 2.\n\nNa razie wprowadź dane ręcznie przez 'Nowy Projekt'.",
-                "ASD RC SLAB — Wczytaj GA",
-                System.Windows.MessageBoxButton.OK,
-                System.Windows.MessageBoxImage.Information);
+            var doc = AcApp.DocumentManager.MdiActiveDocument;
+            if (doc == null) return;
+            var db = doc.Database;
+            var ed = doc.Editor;
+
+            // 1. File picker
+            var dlg = new OpenFileDialog
+            {
+                Title  = "Wybierz plik GA (źródło tabelki tytułowej)",
+                Filter = "AutoCAD drawings (*.dwg;*.dxf)|*.dwg;*.dxf"
+            };
+            if (dlg.ShowDialog() != true) return;
+            string path = dlg.FileName;
+            ed.WriteMessage($"\nGAI: czytam GA z '{Path.GetFileName(path)}'...");
+
+            // 2. Otwórz side database i wyczytaj atrybuty
+            Dictionary<string, string> srcAttrs;
+            try
+            {
+                srcAttrs = ReadA1BLAttributesFromFile(path);
+            }
+            catch (System.Exception ex)
+            {
+                MessageBox.Show($"Nie można otworzyć pliku GA:\n{ex.Message}",
+                                "GAI", MessageBoxButton.OK, MessageBoxImage.Error);
+                return;
+            }
+
+            if (srcAttrs == null || srcAttrs.Count == 0)
+            {
+                MessageBox.Show($"W pliku GA nie znaleziono bloku '{TitleBlockName}'.",
+                                "GAI", MessageBoxButton.OK, MessageBoxImage.Warning);
+                return;
+            }
+
+            // 3. Preview + confirm
+            var sb = new StringBuilder();
+            sb.AppendLine("Skopiować poniższe wartości do tabelki RC?");
+            sb.AppendLine();
+            foreach (var tag in GaiFieldsToCopy)
+            {
+                string val = srcAttrs.TryGetValue(tag, out var v) ? v : "(brak)";
+                sb.AppendLine($"  {tag,-10}: {val}");
+            }
+
+            var result = MessageBox.Show(sb.ToString(), "GAI — potwierdź",
+                                         MessageBoxButton.YesNo, MessageBoxImage.Question);
+            if (result != MessageBoxResult.Yes)
+            {
+                ed.WriteMessage("\nGAI: anulowano przez użytkownika.");
+                return;
+            }
+
+            // 4. Apply do aktywnego dokumentu
+            int updatedLayouts;
+            try
+            {
+                updatedLayouts = ApplyA1BLAttributesToActiveDb(db, srcAttrs, GaiFieldsToCopy);
+            }
+            catch (System.Exception ex)
+            {
+                MessageBox.Show($"Błąd podczas nadpisywania atrybutów:\n{ex.Message}",
+                                "GAI", MessageBoxButton.OK, MessageBoxImage.Error);
+                ed.WriteMessage($"\nGAI: błąd: {ex.Message}");
+                return;
+            }
+
+            // 5. Log + komunikat
+            ed.WriteMessage($"\nGAI: zaktualizowano {updatedLayouts} layout(ów) w aktywnym rysunku.");
+            if (updatedLayouts == 0)
+            {
+                MessageBox.Show($"W aktywnym rysunku nie znaleziono bloków '{TitleBlockName}'.\n" +
+                                "Atrybuty nie zostały nadpisane.",
+                                "GAI", MessageBoxButton.OK, MessageBoxImage.Warning);
+            }
+            else
+            {
+                MessageBox.Show($"Zaktualizowano {updatedLayouts} layout(ów).",
+                                "GAI", MessageBoxButton.OK, MessageBoxImage.Information);
+            }
         }
 
         [CommandMethod("ASD-SET")]
@@ -536,6 +624,113 @@ namespace AsdRcSlab
             doc.Editor.WriteMessage($"\n{sb}\n");
             System.Windows.MessageBox.Show(sb.ToString(), "Waliduj PH",
                 System.Windows.MessageBoxButton.OK, System.Windows.MessageBoxImage.Information);
+        }
+
+        // ── GAI helpers ───────────────────────────────────────────────────────
+
+        private static Dictionary<string, string> ReadA1BLAttributesFromFile(string path)
+        {
+            using (var sideDb = new Database(false, true))
+            {
+                bool isDxf = path.EndsWith(".dxf", StringComparison.OrdinalIgnoreCase);
+                if (isDxf)
+                    sideDb.DxfIn(path, null);
+                else
+                    sideDb.ReadDwgFile(path, System.IO.FileShare.Read, true, "");
+
+                return ExtractA1BLAttributes(sideDb);
+            }
+        }
+
+        private static Dictionary<string, string> ExtractA1BLAttributes(Database db)
+        {
+            var result = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+
+            using (var tr = db.TransactionManager.StartTransaction())
+            {
+                var layoutDict = (DBDictionary)tr.GetObject(db.LayoutDictionaryId, OpenMode.ForRead);
+                foreach (DBDictionaryEntry entry in layoutDict)
+                {
+                    var layout = tr.GetObject(entry.Value, OpenMode.ForRead) as Layout;
+                    if (layout == null) continue;
+                    if (string.Equals(layout.LayoutName, "Model", StringComparison.OrdinalIgnoreCase))
+                        continue;
+
+                    var btr = (BlockTableRecord)tr.GetObject(layout.BlockTableRecordId, OpenMode.ForRead);
+                    foreach (ObjectId id in btr)
+                    {
+                        var br = tr.GetObject(id, OpenMode.ForRead) as BlockReference;
+                        if (br == null) continue;
+                        if (!string.Equals(br.Name, TitleBlockName, StringComparison.OrdinalIgnoreCase))
+                            continue;
+
+                        foreach (ObjectId attId in br.AttributeCollection)
+                        {
+                            var att = tr.GetObject(attId, OpenMode.ForRead) as AttributeReference;
+                            if (att == null) continue;
+                            if (!result.ContainsKey(att.Tag))
+                                result[att.Tag] = att.TextString;
+                        }
+
+                        if (result.Count > 0)
+                        {
+                            tr.Commit();
+                            return result;
+                        }
+                    }
+                }
+                tr.Commit();
+            }
+            return result;
+        }
+
+        private static int ApplyA1BLAttributesToActiveDb(
+            Database db,
+            Dictionary<string, string> src,
+            string[] tagsToCopy)
+        {
+            int updatedLayouts = 0;
+            var tagsSet = new HashSet<string>(tagsToCopy, StringComparer.OrdinalIgnoreCase);
+
+            using (var tr = db.TransactionManager.StartTransaction())
+            {
+                var layoutDict = (DBDictionary)tr.GetObject(db.LayoutDictionaryId, OpenMode.ForRead);
+                foreach (DBDictionaryEntry entry in layoutDict)
+                {
+                    var layout = tr.GetObject(entry.Value, OpenMode.ForRead) as Layout;
+                    if (layout == null) continue;
+                    if (string.Equals(layout.LayoutName, "Model", StringComparison.OrdinalIgnoreCase))
+                        continue;
+
+                    var btr = (BlockTableRecord)tr.GetObject(layout.BlockTableRecordId, OpenMode.ForRead);
+                    bool layoutTouched = false;
+
+                    foreach (ObjectId id in btr)
+                    {
+                        var br = tr.GetObject(id, OpenMode.ForRead) as BlockReference;
+                        if (br == null) continue;
+                        if (!string.Equals(br.Name, TitleBlockName, StringComparison.OrdinalIgnoreCase))
+                            continue;
+
+                        foreach (ObjectId attId in br.AttributeCollection)
+                        {
+                            var att = tr.GetObject(attId, OpenMode.ForRead) as AttributeReference;
+                            if (att == null) continue;
+                            if (!tagsSet.Contains(att.Tag)) continue;
+                            if (!src.TryGetValue(att.Tag, out var newVal)) continue;
+                            if (string.Equals(att.TextString, newVal, StringComparison.Ordinal)) continue;
+
+                            att.UpgradeOpen();
+                            att.TextString = newVal;
+                            layoutTouched = true;
+                        }
+                    }
+
+                    if (layoutTouched) updatedLayouts++;
+                }
+                tr.Commit();
+            }
+            return updatedLayouts;
         }
 
         // ── PANEL 4: QA VALIDATOR ─────────────────────────────────────────────
