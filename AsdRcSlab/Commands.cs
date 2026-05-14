@@ -19,10 +19,12 @@ namespace AsdRcSlab
         private const string TitleBlockName    = "A1-BL";
         private const string GaSlabNotesLayer  = "PCN-Text";
         private const string RcSlabNotesLayer  = "SD-Text";
-        private const string KeySlabArea       = "SLAB_AREA";
-        private const string KeySlabPerimeter  = "SLAB_PERIMETER";
-        private const string KeySlabThickness  = "SLAB_THICKNESS";
-        private const string KeyConcreteVolume = "CONCRETE_VOLUME";
+        private const string KeySlabArea             = "SLAB_AREA";
+        private const string KeySlabPerimeter        = "SLAB_PERIMETER";
+        private const string KeySlabThickness        = "SLAB_THICKNESS";
+        private const string KeyConcreteVolume       = "CONCRETE_VOLUME";
+        private const string KeyConcreteVolumeTail   = "CONCRETE_VOLUME_TAIL";
+        private const string KeyConcreteDesignated   = "CONCRETE_DESIGNATED_BLOCK";
 
         private static readonly string[] GaiFieldsToCopy = new[]
         {
@@ -31,16 +33,24 @@ namespace AsdRcSlab
         };
 
         // Slab extract: group 1 = numeric value
-        private static readonly Regex SlabAreaExtractRx       = new Regex(@"SLAB\s+AREA\s*=\s*([\d.]+)\s*m",       RegexOptions.IgnoreCase);
-        private static readonly Regex SlabPerimeterExtractRx  = new Regex(@"SLAB\s+PERIMETER\s*=\s*([\d.]+)\s*m",  RegexOptions.IgnoreCase);
-        private static readonly Regex SlabThicknessExtractRx  = new Regex(@"SLAB\s+THICKNESS\s*=\s*([\d.]+)\s*mm", RegexOptions.IgnoreCase);
-        private static readonly Regex ConcreteVolumeExtractRx = new Regex(@"CONCRETE\s+VOLUME\s*=\s*([\d.]+)\s*m", RegexOptions.IgnoreCase);
+        private static readonly Regex SlabAreaExtractRx      = new Regex(@"SLAB\s+AREA\s*=\s*([\d.]+)\s*m",       RegexOptions.IgnoreCase);
+        private static readonly Regex SlabPerimeterExtractRx = new Regex(@"SLAB\s+PERIMETER\s*=\s*([\d.]+)\s*m",  RegexOptions.IgnoreCase);
+        private static readonly Regex SlabThicknessExtractRx = new Regex(@"SLAB\s+THICKNESS\s*=\s*([\d.]+)\s*mm", RegexOptions.IgnoreCase);
+
+        // CONCRETE VOLUME — g1=prefix, g2=number, g3=format codes (\H..\S3..\H..), g4=tail
+        private static readonly Regex ConcreteVolumeExtractRx = new Regex(
+            @"(CONCRETE\s+VOLUME\s*=\s*)([\d.]+)(\s*m\\H[^;]*;\\S3\^\s*;\\H[^;]*;)([^\\]*)",
+            RegexOptions.IgnoreCase);
 
         // Slab replace: group 1 = "X = ", group 2 = number, group 3 = " m"/" mm"
-        private static readonly Regex SlabAreaReplaceRx       = new Regex(@"(SLAB\s+AREA\s*=\s*)([\d.]+)(\s*m)",       RegexOptions.IgnoreCase);
-        private static readonly Regex SlabPerimeterReplaceRx  = new Regex(@"(SLAB\s+PERIMETER\s*=\s*)([\d.]+)(\s*m)",  RegexOptions.IgnoreCase);
-        private static readonly Regex SlabThicknessReplaceRx  = new Regex(@"(SLAB\s+THICKNESS\s*=\s*)([\d.]+)(\s*mm)", RegexOptions.IgnoreCase);
-        private static readonly Regex ConcreteVolumeReplaceRx = new Regex(@"(CONCRETE\s+VOLUME\s*=\s*)([\d.]+)(\s*m)", RegexOptions.IgnoreCase);
+        private static readonly Regex SlabAreaReplaceRx      = new Regex(@"(SLAB\s+AREA\s*=\s*)([\d.]+)(\s*m)",       RegexOptions.IgnoreCase);
+        private static readonly Regex SlabPerimeterReplaceRx = new Regex(@"(SLAB\s+PERIMETER\s*=\s*)([\d.]+)(\s*m)",  RegexOptions.IgnoreCase);
+        private static readonly Regex SlabThicknessReplaceRx = new Regex(@"(SLAB\s+THICKNESS\s*=\s*)([\d.]+)(\s*mm)", RegexOptions.IgnoreCase);
+
+        // CONCRETE TO BE DESIGNATED block — od frazy do "CERTIFICATE." (włącznie z kropką)
+        private static readonly Regex ConcreteDesignatedBlockRx = new Regex(
+            @"CONCRETE\s+TO\s+BE\s+DESIGNATED.*?CERTIFICATE\s*\.",
+            RegexOptions.Singleline | RegexOptions.IgnoreCase);
 
         // ── PANEL 1: PROJEKT ──────────────────────────────────────────────────
 
@@ -133,10 +143,18 @@ namespace AsdRcSlab
                 return;
             }
 
-            // 3. Wyciągnij TITLE prefix z już wczytanego TITLE_1 (bez drugiego open)
-            string gaTitlePrefix = null;
+            // 3. Wyciągnij TITLE prefix i DRAWING_NUMBER prefix z już wczytanego A1-BL
+            string gaTitlePrefix   = null;
+            string gaDrawingPrefix = null;
+
             if (srcAttrs.TryGetValue("TITLE_1", out var gaTitle1Raw))
                 gaTitlePrefix = ExtractGaTitlePrefix(gaTitle1Raw);
+
+            if (srcAttrs.TryGetValue("DRAWING_NUMBER", out var gaDrawNo))
+            {
+                int dashIdx = gaDrawNo.IndexOf('-');
+                if (dashIdx > 0) gaDrawingPrefix = gaDrawNo.Substring(0, dashIdx);
+            }
 
             // 4. Otwórz GA drugi raz dla SLAB values (MText na PCN-Text)
             var gaSlabValues = new Dictionary<string, string>();
@@ -170,13 +188,33 @@ namespace AsdRcSlab
             }
             sb.AppendLine();
             sb.AppendLine("TITLE PREFIX (przed REINFORCEMENT DETAILS):");
-            sb.AppendLine($"  {gaTitlePrefix ?? "(brak — nie znaleziono 'GENERAL ARRANGEMENT' w TITLE_1)"}");
+            sb.AppendLine($"  {gaTitlePrefix ?? "(brak)"}");
+            sb.AppendLine();
+            sb.AppendLine("DRAWING_NUMBER prefix (przed '-'):");
+            sb.AppendLine($"  {gaDrawingPrefix ?? "(brak)"}");
             sb.AppendLine();
             sb.AppendLine("SLAB NOTES (wartości liczbowe):");
             sb.AppendLine($"  SLAB AREA       : {(gaSlabValues.TryGetValue(KeySlabArea,       out var sa)  ? sa  : "(brak)")} m²");
             sb.AppendLine($"  SLAB PERIMETER  : {(gaSlabValues.TryGetValue(KeySlabPerimeter,  out var spe) ? spe : "(brak)")} m");
             sb.AppendLine($"  SLAB THICKNESS  : {(gaSlabValues.TryGetValue(KeySlabThickness,  out var sth) ? sth : "(brak)")} mm");
             sb.AppendLine($"  CONCRETE VOLUME : {(gaSlabValues.TryGetValue(KeyConcreteVolume, out var svo) ? svo : "(brak)")} m³");
+            sb.AppendLine();
+            sb.AppendLine("CONCRETE VOLUME tail (po wartości):");
+            string volTail = gaSlabValues.TryGetValue(KeyConcreteVolumeTail, out var vt) ? vt : "";
+            sb.AppendLine($"  {(string.IsNullOrWhiteSpace(volTail) ? "(pusty — RC straci ewentualne 'inc. PILE CAP')" : volTail)}");
+            sb.AppendLine();
+            sb.AppendLine("CONCRETE TO BE DESIGNATED block:");
+            if (gaSlabValues.TryGetValue(KeyConcreteDesignated, out var dBlock) && !string.IsNullOrEmpty(dBlock))
+            {
+                string clean = Regex.Replace(dBlock, @"\\[A-Za-z][^;\s]*;?", " ").Replace("\\P", " ");
+                clean = Regex.Replace(clean, @"\s+", " ").Trim();
+                if (clean.Length > 200) clean = clean.Substring(0, 197) + "...";
+                sb.AppendLine($"  {clean}");
+            }
+            else
+            {
+                sb.AppendLine("  (brak — nie znaleziono w GA)");
+            }
 
             var confirmResult = MessageBox.Show(sb.ToString(), "GAI — potwierdź",
                                                 MessageBoxButton.YesNo, MessageBoxImage.Question);
@@ -190,7 +228,8 @@ namespace AsdRcSlab
             int updatedAttrLayouts;
             try
             {
-                updatedAttrLayouts = ApplyA1BLAttributesToActiveDb(db, srcAttrs, GaiFieldsToCopy, gaTitlePrefix);
+                updatedAttrLayouts = ApplyA1BLAttributesToActiveDb(
+                    db, srcAttrs, GaiFieldsToCopy, gaTitlePrefix, gaDrawingPrefix);
             }
             catch (System.Exception ex)
             {
@@ -697,6 +736,15 @@ namespace AsdRcSlab
             return m.Success ? m.Groups[1].Value.Trim() : null;
         }
 
+        private static string ReplaceRcDrawingPrefix(string rcDrawingNo, string gaPrefix)
+        {
+            if (string.IsNullOrWhiteSpace(rcDrawingNo)) return rcDrawingNo;
+            if (string.IsNullOrWhiteSpace(gaPrefix)) return rcDrawingNo;
+            int dashIdx = rcDrawingNo.IndexOf('-');
+            if (dashIdx < 0) return rcDrawingNo;
+            return gaPrefix + rcDrawingNo.Substring(dashIdx);
+        }
+
         private static string ReplaceRcTitlePrefix(string rcTitle1, string newPrefix)
         {
             if (string.IsNullOrWhiteSpace(rcTitle1)) return rcTitle1;
@@ -734,12 +782,21 @@ namespace AsdRcSlab
                         var m1 = SlabAreaExtractRx.Match(contents);
                         var m2 = SlabPerimeterExtractRx.Match(contents);
                         var m3 = SlabThicknessExtractRx.Match(contents);
-                        var m4 = ConcreteVolumeExtractRx.Match(contents);
 
-                        if (m1.Success) result[KeySlabArea]       = m1.Groups[1].Value;
-                        if (m2.Success) result[KeySlabPerimeter]  = m2.Groups[1].Value;
-                        if (m3.Success) result[KeySlabThickness]  = m3.Groups[1].Value;
-                        if (m4.Success) result[KeyConcreteVolume] = m4.Groups[1].Value;
+                        if (m1.Success) result[KeySlabArea]      = m1.Groups[1].Value;
+                        if (m2.Success) result[KeySlabPerimeter] = m2.Groups[1].Value;
+                        if (m3.Success) result[KeySlabThickness] = m3.Groups[1].Value;
+
+                        var vMatch = ConcreteVolumeExtractRx.Match(contents);
+                        if (vMatch.Success)
+                        {
+                            result[KeyConcreteVolume]     = vMatch.Groups[2].Value;
+                            result[KeyConcreteVolumeTail] = vMatch.Groups[4].Value;
+                        }
+
+                        var dMatch = ConcreteDesignatedBlockRx.Match(contents);
+                        if (dMatch.Success)
+                            result[KeyConcreteDesignated] = dMatch.Value;
 
                         tr.Commit();
                         return result;
@@ -788,8 +845,27 @@ namespace AsdRcSlab
                             newContents = SlabPerimeterReplaceRx.Replace(newContents, "${1}" + vPer + "${3}");
                         if (values.TryGetValue(KeySlabThickness, out var vTh) && !string.IsNullOrEmpty(vTh))
                             newContents = SlabThicknessReplaceRx.Replace(newContents, "${1}" + vTh + "${3}");
+
+                        // CONCRETE VOLUME — nadpisuje wartość liczbową i tail
                         if (values.TryGetValue(KeyConcreteVolume, out var vVol) && !string.IsNullOrEmpty(vVol))
-                            newContents = ConcreteVolumeReplaceRx.Replace(newContents, "${1}" + vVol + "${3}");
+                        {
+                            string newTail = values.TryGetValue(KeyConcreteVolumeTail, out var t) ? t : "";
+                            string newTailEscaped = newTail.Replace("$", "$$");
+                            newContents = ConcreteVolumeExtractRx.Replace(newContents,
+                                              "${1}" + vVol + "${3}" + newTailEscaped);
+                        }
+
+                        // CONCRETE TO BE DESIGNATED block — substring-based (unika interpretacji $ w gaBlock)
+                        if (values.TryGetValue(KeyConcreteDesignated, out var gaBlock) && !string.IsNullOrEmpty(gaBlock))
+                        {
+                            var rcMatch = ConcreteDesignatedBlockRx.Match(newContents);
+                            if (rcMatch.Success)
+                            {
+                                newContents = newContents.Substring(0, rcMatch.Index)
+                                            + gaBlock
+                                            + newContents.Substring(rcMatch.Index + rcMatch.Length);
+                            }
+                        }
 
                         if (!string.Equals(newContents, contents, StringComparison.Ordinal))
                         {
@@ -866,7 +942,8 @@ namespace AsdRcSlab
             Database db,
             Dictionary<string, string> src,
             string[] tagsToCopy,
-            string gaTitlePrefix)   // może być null
+            string gaTitlePrefix,    // może być null
+            string gaDrawingPrefix)  // może być null
         {
             int updatedLayouts = 0;
             var tagsSet = new HashSet<string>(tagsToCopy, StringComparer.OrdinalIgnoreCase);
@@ -903,6 +980,12 @@ namespace AsdRcSlab
                                 string.Equals(att.Tag, "TITLE_1", StringComparison.OrdinalIgnoreCase))
                             {
                                 newVal = ReplaceRcTitlePrefix(att.TextString, gaTitlePrefix);
+                            }
+                            // DRAWING_NUMBER: podmień prefix przed pierwszym "-"
+                            else if (!string.IsNullOrEmpty(gaDrawingPrefix) &&
+                                     string.Equals(att.Tag, "DRAWING_NUMBER", StringComparison.OrdinalIgnoreCase))
+                            {
+                                newVal = ReplaceRcDrawingPrefix(att.TextString, gaDrawingPrefix);
                             }
                             // Standardowa obsługa CLIENT_* / PROJ_*
                             else if (tagsSet.Contains(att.Tag))
