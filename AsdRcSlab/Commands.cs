@@ -135,8 +135,14 @@ namespace AsdRcSlab
             }
             catch (System.Exception ex)
             {
-                MessageBox.Show($"Nie można otworzyć pliku GA:\n{ex.Message}",
-                                "GAI", MessageBoxButton.OK, MessageBoxImage.Error);
+                string inner = ex.InnerException != null
+                    ? $"\nInnerException: {ex.InnerException.GetType().Name}: {ex.InnerException.Message}"
+                    : "";
+                string msg = $"Nie można otworzyć pliku GA:\n" +
+                             $"{ex.GetType().Name}: {ex.Message}{inner}\n\n" +
+                             $"Stack (top 5):\n{string.Join("\n", (ex.StackTrace ?? "").Split('\n').Take(5))}";
+                MessageBox.Show(msg, "GAI", MessageBoxButton.OK, MessageBoxImage.Error);
+                ed.WriteMessage($"\nGAI EXCEPTION: {ex}");
                 return;
             }
 
@@ -266,9 +272,14 @@ namespace AsdRcSlab
             }
             catch (System.Exception ex)
             {
-                MessageBox.Show($"Błąd podczas nadpisywania atrybutów:\n{ex.Message}",
-                                "GAI", MessageBoxButton.OK, MessageBoxImage.Error);
-                ed.WriteMessage($"\nGAI: błąd: {ex.Message}");
+                string inner = ex.InnerException != null
+                    ? $"\nInnerException: {ex.InnerException.GetType().Name}: {ex.InnerException.Message}"
+                    : "";
+                string msg = $"Błąd podczas nadpisywania atrybutów:\n" +
+                             $"{ex.GetType().Name}: {ex.Message}{inner}\n\n" +
+                             $"Stack (top 5):\n{string.Join("\n", (ex.StackTrace ?? "").Split('\n').Take(5))}";
+                MessageBox.Show(msg, "GAI", MessageBoxButton.OK, MessageBoxImage.Error);
+                ed.WriteMessage($"\nGAI EXCEPTION: {ex}");
                 return;
             }
 
@@ -1035,12 +1046,15 @@ namespace AsdRcSlab
                 var layoutDict = (DBDictionary)tr.GetObject(db.LayoutDictionaryId, OpenMode.ForRead);
 
                 // Posortuj alfabetycznie — określa indeks każdego layoutu dla DRAWING_NUMBER
-                var sortedLayoutNames = layoutDict.Cast<DBDictionaryEntry>()
-                    .Select(e => tr.GetObject(e.Value, OpenMode.ForRead) as Layout)
-                    .Where(l => l != null && !string.Equals(l.LayoutName, "Model", StringComparison.OrdinalIgnoreCase))
-                    .Select(l => l.LayoutName)
-                    .OrderBy(n => n, StringComparer.OrdinalIgnoreCase)
-                    .ToList();
+                var sortedLayoutNames = new List<string>();
+                foreach (DBDictionaryEntry sortEntry in layoutDict)
+                {
+                    var sortLayout = tr.GetObject(sortEntry.Value, OpenMode.ForRead) as Layout;
+                    if (sortLayout == null) continue;
+                    if (string.Equals(sortLayout.LayoutName, "Model", StringComparison.OrdinalIgnoreCase)) continue;
+                    sortedLayoutNames.Add(sortLayout.LayoutName);
+                }
+                sortedLayoutNames.Sort(StringComparer.OrdinalIgnoreCase);
                 var layoutNameToIdx = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
                 for (int i = 0; i < sortedLayoutNames.Count; i++)
                     layoutNameToIdx[sortedLayoutNames[i]] = i;
