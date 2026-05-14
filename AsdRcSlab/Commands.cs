@@ -336,6 +336,7 @@ namespace AsdRcSlab
         public void CmdWczytajPunching()
         {
             var doc = AcApp.DocumentManager.MdiActiveDocument;
+            var ed  = doc.Editor;
 
             var fileDlg = new Microsoft.Win32.OpenFileDialog
             {
@@ -346,43 +347,72 @@ namespace AsdRcSlab
 
             try
             {
-                // Krok 1: pobierz listę arkuszy i poproś użytkownika o wybór
-                var sheets = PunchingParser.GetSheetNames(fileDlg.FileName);
-                if (sheets.Count == 0)
+                // Krok 1: skanuj ploty z arkusza "Punching Report to Calcs"
+                string scanLog;
+                var plots = PunchingParser.ScanPlots(fileDlg.FileName, out scanLog);
+                ed.WriteMessage($"\n{scanLog}");
+
+                if (plots.Count == 0)
                 {
-                    doc.Editor.WriteMessage("\nPXIE: Plik nie zawiera żadnych arkuszy.\n");
-                    return;
-                }
-
-                var sheetDlg = new SheetPickerDialog(sheets);
-                if (AcApp.ShowModalWindow(AcApp.MainWindow.Handle, sheetDlg, false) != true) return;
-
-                string selectedSheet = sheetDlg.SelectedSheet;
-
-                // Krok 2: parsuj wybrany arkusz
-                string log;
-                var piles = PunchingParser.Parse(fileDlg.FileName, selectedSheet, out log);
-
-                if (piles.Count == 0)
-                {
-                    doc.Editor.WriteMessage($"\nPXIE: Nie wczytano pali.\n{log}\n");
                     System.Windows.MessageBox.Show(
-                        $"Nie znaleziono danych pali w arkuszu '{selectedSheet}'.\n\nLog parsera:\n{log}",
-                        "Wczytaj Punching", System.Windows.MessageBoxButton.OK,
+                        "Nie znaleziono sekcji 'PLOT N' w arkuszu 'Punching Report to Calcs'.\n\n" +
+                        "Sprawdź czy plik to raport punching w nowym formacie.",
+                        "PXIE", System.Windows.MessageBoxButton.OK,
                         System.Windows.MessageBoxImage.Warning);
                     return;
                 }
 
-                SessionData.Piles = piles;
-                doc.Editor.WriteMessage($"\nPXIE: Wczytano {piles.Count} pali z arkusza '{selectedSheet}'. Gotowy do Assign PH.\n");
+                // Krok 2: wybór plotu (auto jeśli jeden, dialog jeśli wiele)
+                PlotInfo selectedPlot;
+                if (plots.Count == 1)
+                {
+                    selectedPlot = plots[0];
+                    ed.WriteMessage($"\nPXIE: Auto-wybrano {selectedPlot}.\n");
+                }
+                else
+                {
+                    var dlg = new PlotPickerDialog(plots);
+                    if (AcApp.ShowModalWindow(AcApp.MainWindow.Handle, dlg, false) != true)
+                        return; // Cancel — SessionData bez zmian
+                    selectedPlot = dlg.SelectedPlot;
+                }
+
+                // Krok 3: parsuj wybrany plot
+                string parseLog;
+                var piles = PunchingParser.ParsePlot(fileDlg.FileName, selectedPlot.Number, out parseLog);
+                ed.WriteMessage($"\n{parseLog}");
+
+                if (piles.Count == 0)
+                {
+                    System.Windows.MessageBox.Show(
+                        "Brak wczytanych pali. Możliwe przyczyny:\n" +
+                        "• plik nie został przeliczony w Excelu (otwórz i zapisz Ctrl+S)\n" +
+                        "• sekcje w pliku są puste\n\n" +
+                        "Sprawdź log w command line po szczegóły.",
+                        "PXIE", System.Windows.MessageBoxButton.OK,
+                        System.Windows.MessageBoxImage.Warning);
+                    return;
+                }
+
+                // Krok 4: zapisz do sesji
+                SessionData.Piles       = piles;
+                SessionData.CurrentPlot = selectedPlot;
+                SessionData.PhAssigned  = false;
+
+                string reentrantPart = selectedPlot.ReentrantCount > 0
+                    ? $" REENTRANT:{selectedPlot.ReentrantCount}" : "";
+                ed.WriteMessage(
+                    $"\nPXIE: Wczytano {piles.Count} pali z {selectedPlot} " +
+                    $"(INT:{selectedPlot.InternalCount} EDGE:{selectedPlot.EdgeCount} " +
+                    $"CORNER:{selectedPlot.CornerCount}{reentrantPart}). Gotowy do Assign PH.\n");
                 System.Windows.MessageBox.Show(
-                    $"Wczytano {piles.Count} pali z arkusza '{selectedSheet}'.\nGotowy do Assign PH.",
+                    $"Wczytano {piles.Count} pali z {selectedPlot}.\nGotowy do Assign PH.",
                     "Wczytaj Punching", System.Windows.MessageBoxButton.OK,
                     System.Windows.MessageBoxImage.Information);
             }
             catch (System.Exception ex)
             {
-                doc.Editor.WriteMessage($"\nPXIE błąd: {ex.Message}\n");
+                ed.WriteMessage($"\nPXIE błąd: {ex.Message}\n");
             }
         }
 

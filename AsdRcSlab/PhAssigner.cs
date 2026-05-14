@@ -90,6 +90,9 @@ namespace AsdRcSlab
             sb.Append(" SCALE 1:25");
             sb.Append($" APPLICABLE FOR {pileWord} {pileList}");
 
+            if (SessionData.CurrentPlot != null)
+                sb.Append($" [PLOT {SessionData.CurrentPlot.Number}]");
+
             return sb.ToString();
         }
 

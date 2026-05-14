@@ -12,6 +12,7 @@ namespace AsdRcSlab
         public static List<PileData> Piles        { get; set; } = new List<PileData>();
         public static bool         PhAssigned     { get; set; } = false;
         public static BmmResult    BmmResults     { get; set; } = null;
+        public static PlotInfo     CurrentPlot    { get; set; } = null;
 
         // Lap joint X positions of B1 (horizontal) bars; used by ASD-GTOP to avoid conflicts
         public static List<double> LapPositionsB1 { get; set; } = new List<double>();
