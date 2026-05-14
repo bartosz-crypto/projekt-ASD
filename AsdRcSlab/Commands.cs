@@ -1002,6 +1002,31 @@ namespace AsdRcSlab
                 }
                 tr.Commit();
             }
+
+            // Post-processing: identyczne TITLE_3 → suffix "i/N" przed kropką
+            var groupsToSuffix = result
+                .Where(kv => !string.IsNullOrEmpty(kv.Value))
+                .GroupBy(kv => kv.Value, StringComparer.OrdinalIgnoreCase)
+                .Where(g => g.Count() > 1)
+                .ToList();
+
+            foreach (var group in groupsToSuffix)
+            {
+                string baseTitle = group.Key;
+                string baseNoDot = baseTitle.EndsWith(".")
+                    ? baseTitle.Substring(0, baseTitle.Length - 1)
+                    : baseTitle;
+
+                var sortedLayouts = group
+                    .Select(kv => kv.Key)
+                    .OrderBy(name => name, StringComparer.OrdinalIgnoreCase)
+                    .ToList();
+
+                int n = sortedLayouts.Count;
+                for (int i = 0; i < n; i++)
+                    result[sortedLayouts[i]] = $"{baseNoDot} {i + 1}/{n}.";
+            }
+
             return result;
         }
 
