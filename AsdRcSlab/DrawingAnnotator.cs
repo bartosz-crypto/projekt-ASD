@@ -222,16 +222,11 @@ namespace AsdRcSlab
             btr.AppendEntity(boundCircle);
             tr.AddNewlyCreatedDBObject(boundCircle, true);
 
-            // ANSI31 diagonal hatch — Red (ACI 1)
-            // Scale proporcjonalny do promienia: ~5-6 linii przez średnicę
-            // ANSI31 base spacing = 3.175mm @ scale=1 → scale = radius * 0.12 ≈ spacing co ~38mm przy r=300
-            double hatchScale = Math.Max(5.0, radius * 0.12);
-
             var hatch = new Hatch();
             hatch.SetDatabaseDefaults();
             hatch.HatchObjectType = HatchObjectType.HatchObject;
             hatch.SetHatchPattern(HatchPatternType.PreDefined, "ANSI31");
-            hatch.PatternScale = hatchScale;
+            hatch.PatternScale = 10.0;
             hatch.ColorIndex   = 1;   // red
             hatch.Layer        = LayerPhHatch;
             btr.AppendEntity(hatch);
