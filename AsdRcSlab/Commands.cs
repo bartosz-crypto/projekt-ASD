@@ -852,6 +852,8 @@ namespace AsdRcSlab
         private static List<(MsTextCategory cat, double x, double y)> ScanModelSpaceTexts(Database db)
         {
             var result = new List<(MsTextCategory, double, double)>();
+            var ed = AcApp.DocumentManager.MdiActiveDocument.Editor;
+            int totalTexts = 0, classified = 0;
 
             using (var tr = db.TransactionManager.StartTransaction())
             {
@@ -861,39 +863,66 @@ namespace AsdRcSlab
                 foreach (ObjectId id in ms)
                 {
                     string content = null;
+                    string layer   = null;
                     double x = 0, y = 0;
 
                     var ent = tr.GetObject(id, OpenMode.ForRead);
                     if (ent is MText mt)
                     {
                         content = mt.Contents;
+                        layer   = mt.Layer;
                         x = mt.Location.X;
                         y = mt.Location.Y;
                     }
                     else if (ent is DBText t)
                     {
                         content = t.TextString;
+                        layer   = t.Layer;
                         x = t.Position.X;
                         y = t.Position.Y;
                     }
                     else continue;
 
                     if (string.IsNullOrEmpty(content)) continue;
+                    totalTexts++;
+
+                    string cat      = null;
+                    MsTextCategory? msCat = null;
 
                     var mainMatch = MainLayerRx.Match(content);
                     if (mainMatch.Success)
                     {
                         string which = mainMatch.Groups[1].Value.ToUpperInvariant();
-                        result.Add((which == "BOTTOM" ? MsTextCategory.MainBottom : MsTextCategory.MainTop, x, y));
-                        continue;
+                        msCat = which == "BOTTOM" ? MsTextCategory.MainBottom : MsTextCategory.MainTop;
+                        cat   = "MAIN_" + which;
+                    }
+                    else if (SectionRx.IsMatch(content)) { msCat = MsTextCategory.Section; cat = "SECTION"; }
+                    else if (PhRx.IsMatch(content))      { msCat = MsTextCategory.Ph;      cat = "PH"; }
+                    else if (DetailRx.IsMatch(content))  { msCat = MsTextCategory.Detail;  cat = "DETAIL"; }
+
+                    if (msCat.HasValue)
+                    {
+                        result.Add((msCat.Value, x, y));
+                        classified++;
                     }
 
-                    if (SectionRx.IsMatch(content))  { result.Add((MsTextCategory.Section, x, y)); continue; }
-                    if (PhRx.IsMatch(content))        { result.Add((MsTextCategory.Ph, x, y));      continue; }
-                    if (DetailRx.IsMatch(content))    { result.Add((MsTextCategory.Detail, x, y));  continue; }
+                    bool interesting = cat != null
+                        || content.IndexOf("DETAIL",  StringComparison.OrdinalIgnoreCase) >= 0
+                        || content.IndexOf("SECTION", StringComparison.OrdinalIgnoreCase) >= 0
+                        || content.IndexOf("LAYER",   StringComparison.OrdinalIgnoreCase) >= 0
+                        || content.IndexOf("PH",      StringComparison.OrdinalIgnoreCase) >= 0;
+
+                    if (interesting)
+                    {
+                        string snippet = content.Length > 80 ? content.Substring(0, 80) + "..." : content;
+                        snippet = snippet.Replace("\n", "\\n").Replace("\r", "");
+                        string catStr = cat ?? "(nie sklasyfikowano)";
+                        ed.WriteMessage($"\nGAI-MS [{catStr}] layer='{layer}' pos=({x:F0},{y:F0}) | {snippet}");
+                    }
                 }
                 tr.Commit();
             }
+            ed.WriteMessage($"\nGAI-MS: scan zakonczony, totalTexts={totalTexts}, classified={classified}");
             return result;
         }
 
@@ -951,13 +980,24 @@ namespace AsdRcSlab
                         }
                     }
 
+                    // kolejność: main_layer, DETAIL, SECTIONS, PH DETAILS
                     var parts = new List<string>();
                     if (mainLayer != null) parts.Add(mainLayer);
+                    if (hasDetail)   parts.Add("DETAIL");
                     if (hasSections) parts.Add("SECTIONS");
-                    if (hasPh) parts.Add("PH DETAILS");
-                    if (hasDetail && !hasSections && !hasPh) parts.Add("DETAILS");
+                    if (hasPh)       parts.Add("PH DETAILS");
 
-                    string title3 = parts.Count > 0 ? string.Join(" & ", parts) + "." : "";
+                    // Oxford-style: 0→"", 1→"X.", 2→"X & Y.", 3+→"A, B & C."
+                    string title3;
+                    if (parts.Count == 0)
+                        title3 = "";
+                    else if (parts.Count == 1)
+                        title3 = parts[0] + ".";
+                    else if (parts.Count == 2)
+                        title3 = parts[0] + " & " + parts[1] + ".";
+                    else
+                        title3 = string.Join(", ", parts.Take(parts.Count - 1)) + " & " + parts.Last() + ".";
+
                     result[layout.LayoutName] = title3;
                 }
                 tr.Commit();
