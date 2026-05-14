@@ -224,6 +224,23 @@ namespace AsdRcSlab
                 autoTitle3Map = new Dictionary<string, string>();
             }
 
+            // 5c. SCALE — auto z viewportów per layout
+            Dictionary<string, string> autoScalesMap;
+            try
+            {
+                autoScalesMap = ExtractLayoutScales(db);
+            }
+            catch (System.Exception ex)
+            {
+                ed.WriteMessage($"\nGAI: nie udało się wykryć skali viewportów: {ex.Message}");
+                autoScalesMap = new Dictionary<string, string>();
+            }
+
+            // 5d. DATE — aktualny miesiąc + rok
+            string nowDate = DateTime.Now.ToString(
+                "MMM yyyy",
+                System.Globalization.CultureInfo.InvariantCulture).ToUpper();
+
             // 6. Preview + confirm
             var sb = new StringBuilder();
             sb.AppendLine("Skopiować poniższe wartości do RC?");
@@ -289,6 +306,25 @@ namespace AsdRcSlab
                 }
             }
             sb.AppendLine();
+            sb.AppendLine("SCALE (auto z viewportów):");
+            if (autoScalesMap == null || autoScalesMap.Count == 0)
+            {
+                sb.AppendLine("  (brak)");
+            }
+            else
+            {
+                foreach (var kv in autoScalesMap.OrderBy(k => k.Key, StringComparer.OrdinalIgnoreCase))
+                {
+                    string val = string.IsNullOrEmpty(kv.Value) ? "(brak viewportów)" : "\"" + kv.Value + "\"";
+                    sb.AppendLine($"  {kv.Key} → {val}");
+                }
+            }
+            sb.AppendLine();
+            sb.AppendLine($"DATE: {nowDate}");
+            sb.AppendLine();
+            sb.AppendLine("LAYOUT RENAME (po nadpisaniu DRAWING_NUMBER):");
+            sb.AppendLine("  (nowe nazwy = suffix po '-' + 'C1', np. RC030C1)");
+            sb.AppendLine();
             sb.AppendLine("SLAB NOTES (wartości liczbowe):");
             sb.AppendLine($"  SLAB AREA       : {(gaSlabValues.TryGetValue(KeySlabArea,       out var sa)  ? sa  : "(brak)")} m²");
             sb.AppendLine($"  SLAB PERIMETER  : {(gaSlabValues.TryGetValue(KeySlabPerimeter,  out var spe) ? spe : "(brak)")} m");
@@ -326,7 +362,8 @@ namespace AsdRcSlab
             {
                 updatedAttrLayouts = ApplyA1BLAttributesToActiveDb(
                     db, srcAttrs, GaiFieldsToCopy,
-                    gaTitlePrefix, gaDrawingPrefix, plotNumberFromGa, autoTitle3Map);
+                    gaTitlePrefix, gaDrawingPrefix, plotNumberFromGa, autoTitle3Map,
+                    autoScalesMap, nowDate);
             }
             catch (System.Exception ex)
             {
@@ -339,6 +376,17 @@ namespace AsdRcSlab
                 MessageBox.Show(msg, "GAI", MessageBoxButton.OK, MessageBoxImage.Error);
                 ed.WriteMessage($"\nGAI EXCEPTION: {ex}");
                 return;
+            }
+
+            // 7a. Rename layoutów na podstawie nadpisanych DRAWING_NUMBER
+            int renamedLayouts = 0;
+            try
+            {
+                renamedLayouts = RenameLayoutsFromDrawingNumber(db);
+            }
+            catch (System.Exception ex)
+            {
+                ed.WriteMessage($"\nGAI: rename layoutów nie powiódł się: {ex.Message}");
             }
 
             // 7. Apply: SLAB NOTES wartości
@@ -357,9 +405,11 @@ namespace AsdRcSlab
 
             // 8. Log + komunikat
             ed.WriteMessage($"\nGAI: zaktualizowano {updatedAttrLayouts} layout(ów) z tabelką, " +
-                            $"{updatedSlabLayouts} layout(ów) z SLAB NOTES.");
+                            $"{updatedSlabLayouts} layout(ów) z SLAB NOTES, " +
+                            $"renamowano {renamedLayouts} layout(ów).");
             MessageBox.Show($"Zaktualizowano:\n• tabelka tytułowa: {updatedAttrLayouts} layout(ów)\n" +
-                            $"• SLAB NOTES: {updatedSlabLayouts} layout(ów)",
+                            $"• SLAB NOTES: {updatedSlabLayouts} layout(ów)\n" +
+                            $"• Zmieniono nazwy: {renamedLayouts} layout(ów)",
                             "GAI", MessageBoxButton.OK, MessageBoxImage.Information);
         }
 
@@ -1030,6 +1080,140 @@ namespace AsdRcSlab
             return result;
         }
 
+        private static Dictionary<string, string> ExtractLayoutScales(Database db)
+        {
+            var result = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+
+            using (var tr = db.TransactionManager.StartTransaction())
+            {
+                var layoutDict = (DBDictionary)tr.GetObject(db.LayoutDictionaryId, OpenMode.ForRead);
+                foreach (DBDictionaryEntry entry in layoutDict)
+                {
+                    var layout = tr.GetObject(entry.Value, OpenMode.ForRead) as Layout;
+                    if (layout == null) continue;
+                    if (string.Equals(layout.LayoutName, "Model", StringComparison.OrdinalIgnoreCase))
+                        continue;
+
+                    var btr = (BlockTableRecord)tr.GetObject(layout.BlockTableRecordId, OpenMode.ForRead);
+                    var scales = new HashSet<int>();
+                    int vpIdx = 0;
+                    foreach (ObjectId id in btr)
+                    {
+                        var vp = tr.GetObject(id, OpenMode.ForRead) as Viewport;
+                        if (vp == null) continue;
+                        vpIdx++;
+                        if (vpIdx == 1) continue; // paperspace overview
+
+                        if (vp.ViewHeight <= 0) continue;
+                        double scale = vp.Height / vp.ViewHeight;
+                        if (scale <= 0) continue;
+                        int N = (int)Math.Round(1.0 / scale);
+                        if (N <= 0) continue;
+                        scales.Add(N);
+                    }
+
+                    if (scales.Count == 0) { result[layout.LayoutName] = ""; continue; }
+
+                    var sorted = scales.OrderByDescending(n => n).Select(n => "1:" + n).ToList();
+
+                    string fmt;
+                    if (sorted.Count == 1)      fmt = sorted[0];
+                    else if (sorted.Count == 2) fmt = sorted[0] + " & " + sorted[1];
+                    else                        fmt = string.Join(", ", sorted.Take(sorted.Count - 1)) + " & " + sorted.Last();
+
+                    result[layout.LayoutName] = fmt + " @ A1";
+                }
+                tr.Commit();
+            }
+            return result;
+        }
+
+        private static int RenameLayoutsFromDrawingNumber(Database db)
+        {
+            var ed = AcApp.DocumentManager.MdiActiveDocument.Editor;
+
+            var planned = new List<(string oldName, string newName)>();
+            using (var tr = db.TransactionManager.StartTransaction())
+            {
+                var layoutDict = (DBDictionary)tr.GetObject(db.LayoutDictionaryId, OpenMode.ForRead);
+                foreach (DBDictionaryEntry entry in layoutDict)
+                {
+                    var layout = tr.GetObject(entry.Value, OpenMode.ForRead) as Layout;
+                    if (layout == null) continue;
+                    if (string.Equals(layout.LayoutName, "Model", StringComparison.OrdinalIgnoreCase))
+                        continue;
+
+                    string drawingNo = null;
+                    var btr = (BlockTableRecord)tr.GetObject(layout.BlockTableRecordId, OpenMode.ForRead);
+                    foreach (ObjectId oid in btr)
+                    {
+                        var br = tr.GetObject(oid, OpenMode.ForRead) as BlockReference;
+                        if (br == null) continue;
+                        if (!string.Equals(br.Name, TitleBlockName, StringComparison.OrdinalIgnoreCase))
+                            continue;
+                        foreach (ObjectId aid in br.AttributeCollection)
+                        {
+                            var att = tr.GetObject(aid, OpenMode.ForRead) as AttributeReference;
+                            if (att == null) continue;
+                            if (string.Equals(att.Tag, "DRAWING_NUMBER", StringComparison.OrdinalIgnoreCase))
+                            {
+                                drawingNo = att.TextString;
+                                break;
+                            }
+                        }
+                        if (drawingNo != null) break;
+                    }
+
+                    if (string.IsNullOrEmpty(drawingNo)) continue;
+
+                    int dashIdx = drawingNo.LastIndexOf('-');
+                    string suffix  = dashIdx >= 0 ? drawingNo.Substring(dashIdx + 1) : drawingNo;
+                    string newName = suffix + "C1";
+
+                    if (string.Equals(layout.LayoutName, newName, StringComparison.OrdinalIgnoreCase))
+                        continue;
+
+                    planned.Add((layout.LayoutName, newName));
+                }
+                tr.Commit();
+            }
+
+            if (planned.Count == 0) return 0;
+
+            var lm      = LayoutManager.Current;
+            var tempMap = new List<(string tempName, string targetName)>();
+
+            foreach (var op in planned)
+            {
+                string tempName = "_TMP_" + Guid.NewGuid().ToString("N").Substring(0, 8);
+                try
+                {
+                    lm.RenameLayout(op.oldName, tempName);
+                    tempMap.Add((tempName, op.newName));
+                }
+                catch (System.Exception ex)
+                {
+                    ed.WriteMessage($"\nGAI rename phase1 fail ({op.oldName} -> {tempName}): {ex.Message}");
+                }
+            }
+
+            int renamed = 0;
+            foreach (var op in tempMap)
+            {
+                try
+                {
+                    lm.RenameLayout(op.tempName, op.targetName);
+                    renamed++;
+                }
+                catch (System.Exception ex)
+                {
+                    ed.WriteMessage($"\nGAI rename phase2 fail ({op.tempName} -> {op.targetName}): {ex.Message}");
+                }
+            }
+
+            return renamed;
+        }
+
         private static string BuildDrawingSuffix(int? plotNumber, int layoutIdx0Based)
         {
             if (plotNumber.HasValue)
@@ -1234,7 +1418,9 @@ namespace AsdRcSlab
             string gaTitlePrefix,
             string gaDrawingPrefix,
             int? plotNumberFromGa,
-            Dictionary<string, string> autoTitle3Map)
+            Dictionary<string, string> autoTitle3Map,
+            Dictionary<string, string> autoScalesMap,
+            string nowDate)
         {
             int updatedLayouts = 0;
             var tagsSet = new HashSet<string>(tagsToCopy, StringComparer.OrdinalIgnoreCase);
@@ -1307,6 +1493,22 @@ namespace AsdRcSlab
                                 {
                                     newVal = t3;
                                 }
+                            }
+                            // SCALE: auto z viewportów
+                            else if (autoScalesMap != null &&
+                                     string.Equals(att.Tag, "SCALE", StringComparison.OrdinalIgnoreCase))
+                            {
+                                if (autoScalesMap.TryGetValue(layout.LayoutName, out string sc)
+                                    && !string.IsNullOrEmpty(sc))
+                                {
+                                    newVal = sc;
+                                }
+                            }
+                            // DATE: aktualny miesiąc + rok
+                            else if (!string.IsNullOrEmpty(nowDate) &&
+                                     string.Equals(att.Tag, "DATE", StringComparison.OrdinalIgnoreCase))
+                            {
+                                newVal = nowDate;
                             }
                             // Standardowa obsługa CLIENT_* / PROJ_*
                             else if (tagsSet.Contains(att.Tag))
