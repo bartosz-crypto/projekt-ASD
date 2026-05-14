@@ -205,7 +205,6 @@ namespace AsdRcSlab
             int updatedCount  = 0;
             int skippedNoPh   = 0;
             int skippedNoData = 0;
-            int debugCount    = 0;
 
             foreach (ObjectId id in btr)
             {
@@ -233,22 +232,6 @@ namespace AsdRcSlab
 
                 if (piles.Count == 0) { skippedNoData++; continue; }
 
-                if (debugCount < 3)
-                {
-                    var locMatches = locRegex.Matches(contents);
-                    log.AppendLine($"  DEBUG[{phKey}] locRegex matches={locMatches.Count}");
-                    foreach (Match m in locMatches)
-                        log.AppendLine($"    locMatch: '{m.Value}'");
-
-                    var applMatches = applRegex.Matches(contents);
-                    log.AppendLine($"  DEBUG[{phKey}] applRegex matches={applMatches.Count}");
-                    foreach (Match m in applMatches)
-                        log.AppendLine($"    applMatch: '{m.Value}'");
-
-                    log.AppendLine($"  DEBUG[{phKey}] contents BEFORE replace (length={contents.Length}):");
-                    log.AppendLine($"    {contents}");
-                }
-
                 string locReplacement = piles.Count == 1
                     ? $"({piles.Count}No LOCATION)"
                     : $"({piles.Count}No LOCATIONS)";
@@ -259,13 +242,6 @@ namespace AsdRcSlab
                     ? $"APPLICABLE FOR PILE {pileListJoined}"
                     : $"APPLICABLE FOR PILES {pileListJoined}";
                 contents = applRegex.Replace(contents, applReplacement);
-
-                if (debugCount < 3)
-                {
-                    log.AppendLine($"  DEBUG[{phKey}] contents AFTER replace (length={contents.Length}):");
-                    log.AppendLine($"    {contents}");
-                    debugCount++;
-                }
 
                 ent.Contents = contents;
 
