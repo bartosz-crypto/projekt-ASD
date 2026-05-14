@@ -8,6 +8,7 @@ using System.Collections.Generic;
 using System.IO;
 using System.Linq;
 using System.Text;
+using System.Text.RegularExpressions;
 using System.Windows;
 using Microsoft.Win32;
 
@@ -15,13 +16,31 @@ namespace AsdRcSlab
 {
     public class Commands
     {
-        private const string TitleBlockName = "A1-BL";
+        private const string TitleBlockName    = "A1-BL";
+        private const string GaSlabNotesLayer  = "PCN-Text";
+        private const string RcSlabNotesLayer  = "SD-Text";
+        private const string KeySlabArea       = "SLAB_AREA";
+        private const string KeySlabPerimeter  = "SLAB_PERIMETER";
+        private const string KeySlabThickness  = "SLAB_THICKNESS";
+        private const string KeyConcreteVolume = "CONCRETE_VOLUME";
 
         private static readonly string[] GaiFieldsToCopy = new[]
         {
             "CLIENT_1", "CLIENT_2", "CLIENT_3",
             "PROJ_1",   "PROJ_2",   "PROJ_3"
         };
+
+        // Slab extract: group 1 = numeric value
+        private static readonly Regex SlabAreaExtractRx       = new Regex(@"SLAB\s+AREA\s*=\s*([\d.]+)\s*m",       RegexOptions.IgnoreCase);
+        private static readonly Regex SlabPerimeterExtractRx  = new Regex(@"SLAB\s+PERIMETER\s*=\s*([\d.]+)\s*m",  RegexOptions.IgnoreCase);
+        private static readonly Regex SlabThicknessExtractRx  = new Regex(@"SLAB\s+THICKNESS\s*=\s*([\d.]+)\s*mm", RegexOptions.IgnoreCase);
+        private static readonly Regex ConcreteVolumeExtractRx = new Regex(@"CONCRETE\s+VOLUME\s*=\s*([\d.]+)\s*m", RegexOptions.IgnoreCase);
+
+        // Slab replace: group 1 = "X = ", group 2 = number, group 3 = " m"/" mm"
+        private static readonly Regex SlabAreaReplaceRx       = new Regex(@"(SLAB\s+AREA\s*=\s*)([\d.]+)(\s*m)",       RegexOptions.IgnoreCase);
+        private static readonly Regex SlabPerimeterReplaceRx  = new Regex(@"(SLAB\s+PERIMETER\s*=\s*)([\d.]+)(\s*m)",  RegexOptions.IgnoreCase);
+        private static readonly Regex SlabThicknessReplaceRx  = new Regex(@"(SLAB\s+THICKNESS\s*=\s*)([\d.]+)(\s*mm)", RegexOptions.IgnoreCase);
+        private static readonly Regex ConcreteVolumeReplaceRx = new Regex(@"(CONCRETE\s+VOLUME\s*=\s*)([\d.]+)(\s*m)", RegexOptions.IgnoreCase);
 
         // ── PANEL 1: PROJEKT ──────────────────────────────────────────────────
 
@@ -94,7 +113,7 @@ namespace AsdRcSlab
             string path = dlg.FileName;
             ed.WriteMessage($"\nGAI: czytam GA z '{Path.GetFileName(path)}'...");
 
-            // 2. Otwórz side database i wyczytaj atrybuty
+            // 2. Czytaj atrybuty A1-BL (zawiera też TITLE_1)
             Dictionary<string, string> srcAttrs;
             try
             {
@@ -114,29 +133,64 @@ namespace AsdRcSlab
                 return;
             }
 
-            // 3. Preview + confirm
+            // 3. Wyciągnij TITLE prefix z już wczytanego TITLE_1 (bez drugiego open)
+            string gaTitlePrefix = null;
+            if (srcAttrs.TryGetValue("TITLE_1", out var gaTitle1Raw))
+                gaTitlePrefix = ExtractGaTitlePrefix(gaTitle1Raw);
+
+            // 4. Otwórz GA drugi raz dla SLAB values (MText na PCN-Text)
+            var gaSlabValues = new Dictionary<string, string>();
+            try
+            {
+                using (var sideDb = new Database(false, true))
+                {
+                    bool isDxf = path.EndsWith(".dxf", StringComparison.OrdinalIgnoreCase);
+                    if (isDxf) sideDb.DxfIn(path, null);
+                    else       sideDb.ReadDwgFile(path, System.IO.FileShare.Read, true, "");
+
+                    gaSlabValues = ExtractSlabValuesFromDb(sideDb, GaSlabNotesLayer);
+                }
+            }
+            catch (System.Exception ex)
+            {
+                MessageBox.Show($"Błąd przy czytaniu GA (SLAB notes):\n{ex.Message}",
+                                "GAI", MessageBoxButton.OK, MessageBoxImage.Error);
+                return;
+            }
+
+            // 5. Preview + confirm
             var sb = new StringBuilder();
-            sb.AppendLine("Skopiować poniższe wartości do tabelki RC?");
+            sb.AppendLine("Skopiować poniższe wartości do RC?");
             sb.AppendLine();
+            sb.AppendLine("DANE PROJEKTU:");
             foreach (var tag in GaiFieldsToCopy)
             {
                 string val = srcAttrs.TryGetValue(tag, out var v) ? v : "(brak)";
                 sb.AppendLine($"  {tag,-10}: {val}");
             }
+            sb.AppendLine();
+            sb.AppendLine("TITLE PREFIX (przed REINFORCEMENT DETAILS):");
+            sb.AppendLine($"  {gaTitlePrefix ?? "(brak — nie znaleziono 'GENERAL ARRANGEMENT' w TITLE_1)"}");
+            sb.AppendLine();
+            sb.AppendLine("SLAB NOTES (wartości liczbowe):");
+            sb.AppendLine($"  SLAB AREA       : {(gaSlabValues.TryGetValue(KeySlabArea,       out var sa)  ? sa  : "(brak)")} m²");
+            sb.AppendLine($"  SLAB PERIMETER  : {(gaSlabValues.TryGetValue(KeySlabPerimeter,  out var spe) ? spe : "(brak)")} m");
+            sb.AppendLine($"  SLAB THICKNESS  : {(gaSlabValues.TryGetValue(KeySlabThickness,  out var sth) ? sth : "(brak)")} mm");
+            sb.AppendLine($"  CONCRETE VOLUME : {(gaSlabValues.TryGetValue(KeyConcreteVolume, out var svo) ? svo : "(brak)")} m³");
 
-            var result = MessageBox.Show(sb.ToString(), "GAI — potwierdź",
-                                         MessageBoxButton.YesNo, MessageBoxImage.Question);
-            if (result != MessageBoxResult.Yes)
+            var confirmResult = MessageBox.Show(sb.ToString(), "GAI — potwierdź",
+                                                MessageBoxButton.YesNo, MessageBoxImage.Question);
+            if (confirmResult != MessageBoxResult.Yes)
             {
                 ed.WriteMessage("\nGAI: anulowano przez użytkownika.");
                 return;
             }
 
-            // 4. Apply do aktywnego dokumentu
-            int updatedLayouts;
+            // 6. Apply: atrybuty A1-BL + TITLE_1 prefix
+            int updatedAttrLayouts;
             try
             {
-                updatedLayouts = ApplyA1BLAttributesToActiveDb(db, srcAttrs, GaiFieldsToCopy);
+                updatedAttrLayouts = ApplyA1BLAttributesToActiveDb(db, srcAttrs, GaiFieldsToCopy, gaTitlePrefix);
             }
             catch (System.Exception ex)
             {
@@ -146,19 +200,26 @@ namespace AsdRcSlab
                 return;
             }
 
-            // 5. Log + komunikat
-            ed.WriteMessage($"\nGAI: zaktualizowano {updatedLayouts} layout(ów) w aktywnym rysunku.");
-            if (updatedLayouts == 0)
+            // 7. Apply: SLAB NOTES wartości
+            int updatedSlabLayouts = 0;
+            if (gaSlabValues.Count > 0)
             {
-                MessageBox.Show($"W aktywnym rysunku nie znaleziono bloków '{TitleBlockName}'.\n" +
-                                "Atrybuty nie zostały nadpisane.",
-                                "GAI", MessageBoxButton.OK, MessageBoxImage.Warning);
+                try
+                {
+                    updatedSlabLayouts = ApplySlabValuesToActiveDb(db, gaSlabValues, RcSlabNotesLayer);
+                }
+                catch (System.Exception ex)
+                {
+                    ed.WriteMessage($"\nGAI: ostrzeżenie SLAB: {ex.Message}");
+                }
             }
-            else
-            {
-                MessageBox.Show($"Zaktualizowano {updatedLayouts} layout(ów).",
-                                "GAI", MessageBoxButton.OK, MessageBoxImage.Information);
-            }
+
+            // 8. Log + komunikat
+            ed.WriteMessage($"\nGAI: zaktualizowano {updatedAttrLayouts} layout(ów) z tabelką, " +
+                            $"{updatedSlabLayouts} layout(ów) z SLAB NOTES.");
+            MessageBox.Show($"Zaktualizowano:\n• tabelka tytułowa: {updatedAttrLayouts} layout(ów)\n" +
+                            $"• SLAB NOTES: {updatedSlabLayouts} layout(ów)",
+                            "GAI", MessageBoxButton.OK, MessageBoxImage.Information);
         }
 
         [CommandMethod("ASD-SET")]
@@ -628,6 +689,123 @@ namespace AsdRcSlab
 
         // ── GAI helpers ───────────────────────────────────────────────────────
 
+        private static string ExtractGaTitlePrefix(string gaTitle1)
+        {
+            if (string.IsNullOrWhiteSpace(gaTitle1)) return null;
+            var m = Regex.Match(gaTitle1, @"^(.+?)\s+GENERAL\s+ARRANGEMENT",
+                                RegexOptions.IgnoreCase);
+            return m.Success ? m.Groups[1].Value.Trim() : null;
+        }
+
+        private static string ReplaceRcTitlePrefix(string rcTitle1, string newPrefix)
+        {
+            if (string.IsNullOrWhiteSpace(rcTitle1)) return rcTitle1;
+            if (string.IsNullOrWhiteSpace(newPrefix)) return rcTitle1;
+            var m = Regex.Match(rcTitle1, @"REINFORCEMENT\s+DETAILS", RegexOptions.IgnoreCase);
+            if (!m.Success) return rcTitle1;
+            return newPrefix + " " + rcTitle1.Substring(m.Index);
+        }
+
+        private static Dictionary<string, string> ExtractSlabValuesFromDb(Database db, string layerName)
+        {
+            var result = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+
+            using (var tr = db.TransactionManager.StartTransaction())
+            {
+                var layoutDict = (DBDictionary)tr.GetObject(db.LayoutDictionaryId, OpenMode.ForRead);
+                foreach (DBDictionaryEntry entry in layoutDict)
+                {
+                    var layout = tr.GetObject(entry.Value, OpenMode.ForRead) as Layout;
+                    if (layout == null) continue;
+                    if (string.Equals(layout.LayoutName, "Model", StringComparison.OrdinalIgnoreCase))
+                        continue;
+
+                    var btr = (BlockTableRecord)tr.GetObject(layout.BlockTableRecordId, OpenMode.ForRead);
+                    foreach (ObjectId id in btr)
+                    {
+                        var mt = tr.GetObject(id, OpenMode.ForRead) as MText;
+                        if (mt == null) continue;
+                        if (!string.Equals(mt.Layer, layerName, StringComparison.OrdinalIgnoreCase))
+                            continue;
+
+                        string contents = mt.Contents;
+                        if (!contents.Contains("SLAB AREA")) continue;
+
+                        var m1 = SlabAreaExtractRx.Match(contents);
+                        var m2 = SlabPerimeterExtractRx.Match(contents);
+                        var m3 = SlabThicknessExtractRx.Match(contents);
+                        var m4 = ConcreteVolumeExtractRx.Match(contents);
+
+                        if (m1.Success) result[KeySlabArea]       = m1.Groups[1].Value;
+                        if (m2.Success) result[KeySlabPerimeter]  = m2.Groups[1].Value;
+                        if (m3.Success) result[KeySlabThickness]  = m3.Groups[1].Value;
+                        if (m4.Success) result[KeyConcreteVolume] = m4.Groups[1].Value;
+
+                        tr.Commit();
+                        return result;
+                    }
+                }
+                tr.Commit();
+            }
+            return result;
+        }
+
+        private static int ApplySlabValuesToActiveDb(
+            Database db,
+            Dictionary<string, string> values,
+            string layerName)
+        {
+            int updatedLayouts = 0;
+
+            using (var tr = db.TransactionManager.StartTransaction())
+            {
+                var layoutDict = (DBDictionary)tr.GetObject(db.LayoutDictionaryId, OpenMode.ForRead);
+                foreach (DBDictionaryEntry entry in layoutDict)
+                {
+                    var layout = tr.GetObject(entry.Value, OpenMode.ForRead) as Layout;
+                    if (layout == null) continue;
+                    if (string.Equals(layout.LayoutName, "Model", StringComparison.OrdinalIgnoreCase))
+                        continue;
+
+                    var btr = (BlockTableRecord)tr.GetObject(layout.BlockTableRecordId, OpenMode.ForRead);
+                    bool layoutTouched = false;
+
+                    foreach (ObjectId id in btr)
+                    {
+                        var mt = tr.GetObject(id, OpenMode.ForRead) as MText;
+                        if (mt == null) continue;
+                        if (!string.Equals(mt.Layer, layerName, StringComparison.OrdinalIgnoreCase))
+                            continue;
+
+                        string contents = mt.Contents;
+                        if (!contents.Contains("SLAB AREA")) continue;
+
+                        string newContents = contents;
+
+                        if (values.TryGetValue(KeySlabArea, out var vArea) && !string.IsNullOrEmpty(vArea))
+                            newContents = SlabAreaReplaceRx.Replace(newContents, "${1}" + vArea + "${3}");
+                        if (values.TryGetValue(KeySlabPerimeter, out var vPer) && !string.IsNullOrEmpty(vPer))
+                            newContents = SlabPerimeterReplaceRx.Replace(newContents, "${1}" + vPer + "${3}");
+                        if (values.TryGetValue(KeySlabThickness, out var vTh) && !string.IsNullOrEmpty(vTh))
+                            newContents = SlabThicknessReplaceRx.Replace(newContents, "${1}" + vTh + "${3}");
+                        if (values.TryGetValue(KeyConcreteVolume, out var vVol) && !string.IsNullOrEmpty(vVol))
+                            newContents = ConcreteVolumeReplaceRx.Replace(newContents, "${1}" + vVol + "${3}");
+
+                        if (!string.Equals(newContents, contents, StringComparison.Ordinal))
+                        {
+                            mt.UpgradeOpen();
+                            mt.Contents = newContents;
+                            layoutTouched = true;
+                        }
+                    }
+
+                    if (layoutTouched) updatedLayouts++;
+                }
+                tr.Commit();
+            }
+            return updatedLayouts;
+        }
+
         private static Dictionary<string, string> ReadA1BLAttributesFromFile(string path)
         {
             using (var sideDb = new Database(false, true))
@@ -687,7 +865,8 @@ namespace AsdRcSlab
         private static int ApplyA1BLAttributesToActiveDb(
             Database db,
             Dictionary<string, string> src,
-            string[] tagsToCopy)
+            string[] tagsToCopy,
+            string gaTitlePrefix)   // może być null
         {
             int updatedLayouts = 0;
             var tagsSet = new HashSet<string>(tagsToCopy, StringComparer.OrdinalIgnoreCase);
@@ -716,8 +895,22 @@ namespace AsdRcSlab
                         {
                             var att = tr.GetObject(attId, OpenMode.ForRead) as AttributeReference;
                             if (att == null) continue;
-                            if (!tagsSet.Contains(att.Tag)) continue;
-                            if (!src.TryGetValue(att.Tag, out var newVal)) continue;
+
+                            string newVal = null;
+
+                            // Specjalna obsługa TITLE_1: podmień prefix przed "REINFORCEMENT DETAILS"
+                            if (!string.IsNullOrEmpty(gaTitlePrefix) &&
+                                string.Equals(att.Tag, "TITLE_1", StringComparison.OrdinalIgnoreCase))
+                            {
+                                newVal = ReplaceRcTitlePrefix(att.TextString, gaTitlePrefix);
+                            }
+                            // Standardowa obsługa CLIENT_* / PROJ_*
+                            else if (tagsSet.Contains(att.Tag))
+                            {
+                                src.TryGetValue(att.Tag, out newVal);
+                            }
+
+                            if (newVal == null) continue;
                             if (string.Equals(att.TextString, newVal, StringComparison.Ordinal)) continue;
 
                             att.UpgradeOpen();
