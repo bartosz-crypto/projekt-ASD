@@ -196,17 +196,22 @@ namespace AsdRcSlab
         private static int AnnotatePhDetailLabels(Transaction tr, BlockTableRecord btr, StringBuilder log)
         {
             var phRegex   = new Regex(@"\bPH3-RE\b|\bPH([1-9])\b");
-            var locRegex  = new Regex(@"\(\s*\d*\s*No\s+LOCATIONS?\s*\)");
+            // Loosened: matches anything from '(' through 'No...LOCATIONS?' to ')'.
+            // Original strict regex failed when MText encoding inserted invisible chars
+            // between the digit and 'No' (e.g. formatting codes or non-breaking space).
+            var locRegex  = new Regex(@"\(\s*\d*[^)]*No[^)]*LOCATIONS?[^)]*\)", RegexOptions.IgnoreCase);
             var applRegex = new Regex(@"APPLICABLE FOR PILES?[^}]*");
 
             int updatedCount  = 0;
             int skippedNoPh   = 0;
             int skippedNoData = 0;
+            int debugCount    = 0;
 
             foreach (ObjectId id in btr)
             {
+                // Open ForWrite directly — avoids UpgradeOpen() edge cases on iterated BTR entities
                 MText ent;
-                try { ent = tr.GetObject(id, OpenMode.ForRead) as MText; }
+                try { ent = tr.GetObject(id, OpenMode.ForWrite) as MText; }
                 catch { continue; }
                 if (ent == null) continue;
                 if (!string.Equals(ent.Layer, "AP-TEXT", StringComparison.OrdinalIgnoreCase)) continue;
@@ -228,6 +233,22 @@ namespace AsdRcSlab
 
                 if (piles.Count == 0) { skippedNoData++; continue; }
 
+                if (debugCount < 3)
+                {
+                    var locMatches = locRegex.Matches(contents);
+                    log.AppendLine($"  DEBUG[{phKey}] locRegex matches={locMatches.Count}");
+                    foreach (Match m in locMatches)
+                        log.AppendLine($"    locMatch: '{m.Value}'");
+
+                    var applMatches = applRegex.Matches(contents);
+                    log.AppendLine($"  DEBUG[{phKey}] applRegex matches={applMatches.Count}");
+                    foreach (Match m in applMatches)
+                        log.AppendLine($"    applMatch: '{m.Value}'");
+
+                    log.AppendLine($"  DEBUG[{phKey}] contents BEFORE replace (length={contents.Length}):");
+                    log.AppendLine($"    {contents}");
+                }
+
                 string locReplacement = piles.Count == 1
                     ? $"({piles.Count}No LOCATION)"
                     : $"({piles.Count}No LOCATIONS)";
@@ -239,7 +260,13 @@ namespace AsdRcSlab
                     : $"APPLICABLE FOR PILES {pileListJoined}";
                 contents = applRegex.Replace(contents, applReplacement);
 
-                ent.UpgradeOpen();
+                if (debugCount < 3)
+                {
+                    log.AppendLine($"  DEBUG[{phKey}] contents AFTER replace (length={contents.Length}):");
+                    log.AppendLine($"    {contents}");
+                    debugCount++;
+                }
+
                 ent.Contents = contents;
 
                 log.AppendLine($"  AP-TEXT [{phKey}]: zaktualizowano ({piles.Count} pali: {pileListJoined})");
