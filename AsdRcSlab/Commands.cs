@@ -186,16 +186,13 @@ namespace AsdRcSlab
                 return;
             }
 
-            // 5. Odczytaj numery plotów z RC PRZED nadpisaniem TITLE_1
-            Dictionary<string, int?> layoutPlotNumbers;
-            try
+            // 5. Wyciągnij numer plotu z GA TITLE_1 prefix (np. "PLOT 58." → 58)
+            int? plotNumberFromGa = null;
+            if (!string.IsNullOrEmpty(gaTitlePrefix))
             {
-                layoutPlotNumbers = ExtractLayoutPlotNumbers(db);
-            }
-            catch (System.Exception ex)
-            {
-                ed.WriteMessage($"\nGAI: nie udało się odczytać numerów plotów: {ex.Message}");
-                layoutPlotNumbers = new Dictionary<string, int?>();
+                var pm = TitlePlotNumberRx.Match(gaTitlePrefix);
+                if (pm.Success && int.TryParse(pm.Groups[1].Value, out int p))
+                    plotNumberFromGa = p;
             }
 
             // 6. Preview + confirm
@@ -212,23 +209,37 @@ namespace AsdRcSlab
             sb.AppendLine("TITLE PREFIX (przed REINFORCEMENT DETAILS):");
             sb.AppendLine($"  {gaTitlePrefix ?? "(brak)"}");
             sb.AppendLine();
-            sb.AppendLine("DRAWING_NUMBER (per layout):");
+            sb.AppendLine("DRAWING_NUMBER:");
             if (string.IsNullOrEmpty(gaDrawingPrefix))
             {
                 sb.AppendLine("  (brak prefiksu z GA — nie nadpiszemy)");
             }
             else
             {
-                var sortedNames = layoutPlotNumbers.Keys
-                    .OrderBy(k => k, StringComparer.OrdinalIgnoreCase)
-                    .ToList();
-                for (int i = 0; i < sortedNames.Count; i++)
+                string plotStr = plotNumberFromGa.HasValue
+                    ? $"PLOT {plotNumberFromGa.Value} (z GA prefix)"
+                    : "brak PLOT N w GA prefix";
+                sb.AppendLine($"  Plot: {plotStr}");
+
+                var rcLayoutNames = new List<string>();
+                using (var tr = db.TransactionManager.StartTransaction())
                 {
-                    var lname = sortedNames[i];
-                    var lplot = layoutPlotNumbers[lname];
-                    string suffix  = BuildDrawingSuffix(lplot, i);
-                    string plotStr = lplot.HasValue ? lplot.Value.ToString() : "(brak)";
-                    sb.AppendLine($"  {lname} (PLOT={plotStr}) → {gaDrawingPrefix}-{suffix}");
+                    var ld = (DBDictionary)tr.GetObject(db.LayoutDictionaryId, OpenMode.ForRead);
+                    foreach (DBDictionaryEntry ent in ld)
+                    {
+                        var lay = tr.GetObject(ent.Value, OpenMode.ForRead) as Layout;
+                        if (lay == null) continue;
+                        if (string.Equals(lay.LayoutName, "Model", StringComparison.OrdinalIgnoreCase)) continue;
+                        rcLayoutNames.Add(lay.LayoutName);
+                    }
+                    tr.Commit();
+                }
+                rcLayoutNames.Sort(StringComparer.OrdinalIgnoreCase);
+
+                for (int i = 0; i < rcLayoutNames.Count; i++)
+                {
+                    string suffix = BuildDrawingSuffix(plotNumberFromGa, i);
+                    sb.AppendLine($"  {rcLayoutNames[i]} → {gaDrawingPrefix}-{suffix}");
                 }
             }
             sb.AppendLine();
@@ -268,7 +279,7 @@ namespace AsdRcSlab
             try
             {
                 updatedAttrLayouts = ApplyA1BLAttributesToActiveDb(
-                    db, srcAttrs, GaiFieldsToCopy, gaTitlePrefix, gaDrawingPrefix, layoutPlotNumbers);
+                    db, srcAttrs, GaiFieldsToCopy, gaTitlePrefix, gaDrawingPrefix, plotNumberFromGa);
             }
             catch (System.Exception ex)
             {
@@ -789,50 +800,6 @@ namespace AsdRcSlab
             return newPrefix + " " + rcTitle1.Substring(m.Index);
         }
 
-        private static Dictionary<string, int?> ExtractLayoutPlotNumbers(Database db)
-        {
-            var result = new Dictionary<string, int?>(StringComparer.OrdinalIgnoreCase);
-
-            using (var tr = db.TransactionManager.StartTransaction())
-            {
-                var layoutDict = (DBDictionary)tr.GetObject(db.LayoutDictionaryId, OpenMode.ForRead);
-                foreach (DBDictionaryEntry entry in layoutDict)
-                {
-                    var layout = tr.GetObject(entry.Value, OpenMode.ForRead) as Layout;
-                    if (layout == null) continue;
-                    if (string.Equals(layout.LayoutName, "Model", StringComparison.OrdinalIgnoreCase))
-                        continue;
-
-                    int? plot = null;
-                    var btr = (BlockTableRecord)tr.GetObject(layout.BlockTableRecordId, OpenMode.ForRead);
-                    foreach (ObjectId id in btr)
-                    {
-                        var br = tr.GetObject(id, OpenMode.ForRead) as BlockReference;
-                        if (br == null) continue;
-                        if (!string.Equals(br.Name, TitleBlockName, StringComparison.OrdinalIgnoreCase))
-                            continue;
-
-                        foreach (ObjectId attId in br.AttributeCollection)
-                        {
-                            var att = tr.GetObject(attId, OpenMode.ForRead) as AttributeReference;
-                            if (att == null) continue;
-                            if (!string.Equals(att.Tag, "TITLE_1", StringComparison.OrdinalIgnoreCase))
-                                continue;
-
-                            var m = TitlePlotNumberRx.Match(att.TextString ?? "");
-                            if (m.Success && int.TryParse(m.Groups[1].Value, out int p))
-                                plot = p;
-                            break;
-                        }
-                        break;
-                    }
-                    result[layout.LayoutName] = plot;
-                }
-                tr.Commit();
-            }
-            return result;
-        }
-
         private static string BuildDrawingSuffix(int? plotNumber, int layoutIdx0Based)
         {
             if (plotNumber.HasValue)
@@ -1034,9 +1001,9 @@ namespace AsdRcSlab
             Database db,
             Dictionary<string, string> src,
             string[] tagsToCopy,
-            string gaTitlePrefix,                      // może być null
-            string gaDrawingPrefix,                    // może być null
-            Dictionary<string, int?> layoutPlotNumbers) // może być null
+            string gaTitlePrefix,      // może być null
+            string gaDrawingPrefix,    // może być null
+            int? plotNumberFromGa)     // jeden plot dla wszystkich layoutów, może być null
         {
             int updatedLayouts = 0;
             var tagsSet = new HashSet<string>(tagsToCopy, StringComparer.OrdinalIgnoreCase);
@@ -1068,9 +1035,7 @@ namespace AsdRcSlab
 
                     int currentLayoutIdx = layoutNameToIdx.ContainsKey(layout.LayoutName)
                         ? layoutNameToIdx[layout.LayoutName] : 0;
-                    int? currentLayoutPlot = null;
-                    if (layoutPlotNumbers != null && layoutPlotNumbers.ContainsKey(layout.LayoutName))
-                        currentLayoutPlot = layoutPlotNumbers[layout.LayoutName];
+                    int? currentLayoutPlot = plotNumberFromGa;
 
                     var btr = (BlockTableRecord)tr.GetObject(layout.BlockTableRecordId, OpenMode.ForRead);
                     bool layoutTouched = false;
