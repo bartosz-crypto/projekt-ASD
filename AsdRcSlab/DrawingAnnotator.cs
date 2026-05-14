@@ -4,6 +4,7 @@ using Autodesk.AutoCAD.Geometry;
 using System;
 using System.Collections.Generic;
 using System.Linq;
+using System.Text;
 using System.Text.RegularExpressions;
 using AcApp = Autodesk.AutoCAD.ApplicationServices.Application;
 
@@ -179,11 +180,83 @@ namespace AsdRcSlab
                     result.Annotated.Add(pile.PileId);
                 }
 
+                var phLogSb = new StringBuilder();
+                result.PhLabelsUpdated = AnnotatePhDetailLabels(tr, btr, phLogSb);
+                result.Log += phLogSb.ToString();
+
                 tr.Commit();
             }
 
             result.Log += BuildLog(result);
             return result;
+        }
+
+        // ── AP-TEXT template updater ─────────────────────────────────────────────────
+
+        private static int AnnotatePhDetailLabels(Transaction tr, BlockTableRecord btr, StringBuilder log)
+        {
+            var phRegex   = new Regex(@"\bPH3-RE\b|\bPH([1-9])\b");
+            var locRegex  = new Regex(@"\(\s*\d*\s*No\s+LOCATIONS?\s*\)");
+            var applRegex = new Regex(@"APPLICABLE FOR PILES?[^}]*");
+
+            int updatedCount  = 0;
+            int skippedNoPh   = 0;
+            int skippedNoData = 0;
+
+            foreach (ObjectId id in btr)
+            {
+                MText ent;
+                try { ent = tr.GetObject(id, OpenMode.ForRead) as MText; }
+                catch { continue; }
+                if (ent == null) continue;
+                if (!string.Equals(ent.Layer, "AP-TEXT", StringComparison.OrdinalIgnoreCase)) continue;
+
+                string contents = ent.Contents;
+                var phMatch = phRegex.Match(contents);
+                if (!phMatch.Success) { skippedNoPh++; continue; }
+
+                string phKey = phMatch.Value.StartsWith("PH3-RE", StringComparison.Ordinal)
+                    ? "PH3-RE"
+                    : "PH" + phMatch.Groups[1].Value;
+
+                var piles = SessionData.Piles
+                    .Where(p => string.Equals(p.PhAction, phKey, StringComparison.OrdinalIgnoreCase))
+                    .Select(p => p.PileId)
+                    .OrderBy(pid => ExtractFirstNumber(pid))
+                    .ThenBy(pid => pid, StringComparer.OrdinalIgnoreCase)
+                    .ToList();
+
+                if (piles.Count == 0) { skippedNoData++; continue; }
+
+                string locReplacement = piles.Count == 1
+                    ? $"({piles.Count}No LOCATION)"
+                    : $"({piles.Count}No LOCATIONS)";
+                contents = locRegex.Replace(contents, locReplacement);
+
+                string pileListJoined = string.Join(", ", piles);
+                string applReplacement = piles.Count == 1
+                    ? $"APPLICABLE FOR PILE {pileListJoined}"
+                    : $"APPLICABLE FOR PILES {pileListJoined}";
+                contents = applRegex.Replace(contents, applReplacement);
+
+                ent.UpgradeOpen();
+                ent.Contents = contents;
+
+                log.AppendLine($"  AP-TEXT [{phKey}]: zaktualizowano ({piles.Count} pali: {pileListJoined})");
+                updatedCount++;
+            }
+
+            log.AppendLine($"AnnotatePhDetailLabels: zaktualizowano {updatedCount}, pominięto " +
+                           $"{skippedNoPh} (brak PH w treści) + {skippedNoData} (brak pali dla danego PH).");
+            return updatedCount;
+        }
+
+        private static int ExtractFirstNumber(string s)
+        {
+            if (string.IsNullOrEmpty(s)) return int.MaxValue;
+            var m = Regex.Match(s, @"\d+");
+            if (!m.Success) return int.MaxValue;
+            return int.TryParse(m.Value, out int n) ? n : int.MaxValue;
         }
 
         // ── Private helpers ──────────────────────────────────────────────────────────
@@ -345,12 +418,13 @@ namespace AsdRcSlab
 
     public class AnnotationResult
     {
-        public int          TotalCircles { get; set; }
-        public int          TotalTexts   { get; set; }
-        public List<string> Annotated    { get; set; } = new List<string>();
-        public List<string> Skipped      { get; set; } = new List<string>();
-        public List<string> NotFound     { get; set; } = new List<string>();
-        public string       Log          { get; set; } = "";
-        public bool         WrongDrawing { get; set; }
+        public int          TotalCircles     { get; set; }
+        public int          TotalTexts       { get; set; }
+        public List<string> Annotated        { get; set; } = new List<string>();
+        public List<string> Skipped          { get; set; } = new List<string>();
+        public List<string> NotFound         { get; set; } = new List<string>();
+        public string       Log              { get; set; } = "";
+        public bool         WrongDrawing     { get; set; }
+        public int          PhLabelsUpdated  { get; set; }
     }
 }
