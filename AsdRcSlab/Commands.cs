@@ -56,6 +56,23 @@ namespace AsdRcSlab
         private static readonly Regex TitlePlotNumberRx =
             new Regex(@"\bPLOT\s+(\d+)", RegexOptions.IgnoreCase);
 
+        // Auto-detekcja TITLE_3
+        private static readonly Regex MainLayerRx = new Regex(
+            @"REINFORCEMENT\s+DETAILS\s+.*?\b(BOTTOM|TOP)\s+LAYER",
+            RegexOptions.IgnoreCase | RegexOptions.Singleline);
+
+        private static readonly Regex SectionRx = new Regex(
+            @"\bSECTION\s+[A-Z]\s*-\s*[A-Z]\b",
+            RegexOptions.IgnoreCase);
+
+        private static readonly Regex PhRx = new Regex(
+            @"\bPH[1-9](-RE)?\b",
+            RegexOptions.IgnoreCase);
+
+        private static readonly Regex DetailRx = new Regex(
+            @"\bDETAIL\s+['""]?\d+['""]?",
+            RegexOptions.IgnoreCase);
+
         // ── PANEL 1: PROJEKT ──────────────────────────────────────────────────
 
         [CommandMethod("ASD-PROJ")]
@@ -195,6 +212,18 @@ namespace AsdRcSlab
                     plotNumberFromGa = p;
             }
 
+            // 5b. Auto-wykryj TITLE_3 z Model space + viewportów RC
+            Dictionary<string, string> autoTitle3Map;
+            try
+            {
+                autoTitle3Map = ExtractAutoTitle3(db);
+            }
+            catch (System.Exception ex)
+            {
+                ed.WriteMessage($"\nGAI: nie udało się auto-wykryć TITLE_3: {ex.Message}");
+                autoTitle3Map = new Dictionary<string, string>();
+            }
+
             // 6. Preview + confirm
             var sb = new StringBuilder();
             sb.AppendLine("Skopiować poniższe wartości do RC?");
@@ -243,6 +272,23 @@ namespace AsdRcSlab
                 }
             }
             sb.AppendLine();
+            sb.AppendLine("TITLE_3 (auto-wykrycie z Model space + viewporty):");
+            if (autoTitle3Map == null || autoTitle3Map.Count == 0)
+            {
+                sb.AppendLine("  (brak — automat nic nie wykrył)");
+            }
+            else
+            {
+                var sorted = autoTitle3Map.OrderBy(kv => kv.Key, StringComparer.OrdinalIgnoreCase).ToList();
+                foreach (var kv in sorted)
+                {
+                    string val = string.IsNullOrEmpty(kv.Value)
+                        ? "(brak wykrycia — zostawiam istniejący)"
+                        : "\"" + kv.Value + "\"";
+                    sb.AppendLine($"  {kv.Key} → {val}");
+                }
+            }
+            sb.AppendLine();
             sb.AppendLine("SLAB NOTES (wartości liczbowe):");
             sb.AppendLine($"  SLAB AREA       : {(gaSlabValues.TryGetValue(KeySlabArea,       out var sa)  ? sa  : "(brak)")} m²");
             sb.AppendLine($"  SLAB PERIMETER  : {(gaSlabValues.TryGetValue(KeySlabPerimeter,  out var spe) ? spe : "(brak)")} m");
@@ -279,7 +325,8 @@ namespace AsdRcSlab
             try
             {
                 updatedAttrLayouts = ApplyA1BLAttributesToActiveDb(
-                    db, srcAttrs, GaiFieldsToCopy, gaTitlePrefix, gaDrawingPrefix, plotNumberFromGa);
+                    db, srcAttrs, GaiFieldsToCopy,
+                    gaTitlePrefix, gaDrawingPrefix, plotNumberFromGa, autoTitle3Map);
             }
             catch (System.Exception ex)
             {
@@ -800,6 +847,124 @@ namespace AsdRcSlab
             return newPrefix + " " + rcTitle1.Substring(m.Index);
         }
 
+        private enum MsTextCategory { MainBottom, MainTop, Section, Ph, Detail }
+
+        private static List<(MsTextCategory cat, double x, double y)> ScanModelSpaceTexts(Database db)
+        {
+            var result = new List<(MsTextCategory, double, double)>();
+
+            using (var tr = db.TransactionManager.StartTransaction())
+            {
+                var bt = (BlockTable)tr.GetObject(db.BlockTableId, OpenMode.ForRead);
+                var ms = (BlockTableRecord)tr.GetObject(bt[BlockTableRecord.ModelSpace], OpenMode.ForRead);
+
+                foreach (ObjectId id in ms)
+                {
+                    string content = null;
+                    double x = 0, y = 0;
+
+                    var ent = tr.GetObject(id, OpenMode.ForRead);
+                    if (ent is MText mt)
+                    {
+                        content = mt.Contents;
+                        x = mt.Location.X;
+                        y = mt.Location.Y;
+                    }
+                    else if (ent is DBText t)
+                    {
+                        content = t.TextString;
+                        x = t.Position.X;
+                        y = t.Position.Y;
+                    }
+                    else continue;
+
+                    if (string.IsNullOrEmpty(content)) continue;
+
+                    var mainMatch = MainLayerRx.Match(content);
+                    if (mainMatch.Success)
+                    {
+                        string which = mainMatch.Groups[1].Value.ToUpperInvariant();
+                        result.Add((which == "BOTTOM" ? MsTextCategory.MainBottom : MsTextCategory.MainTop, x, y));
+                        continue;
+                    }
+
+                    if (SectionRx.IsMatch(content))  { result.Add((MsTextCategory.Section, x, y)); continue; }
+                    if (PhRx.IsMatch(content))        { result.Add((MsTextCategory.Ph, x, y));      continue; }
+                    if (DetailRx.IsMatch(content))    { result.Add((MsTextCategory.Detail, x, y));  continue; }
+                }
+                tr.Commit();
+            }
+            return result;
+        }
+
+        private static Dictionary<string, string> ExtractAutoTitle3(Database db)
+        {
+            var result = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+            var msTexts = ScanModelSpaceTexts(db);
+
+            using (var tr = db.TransactionManager.StartTransaction())
+            {
+                var layoutDict = (DBDictionary)tr.GetObject(db.LayoutDictionaryId, OpenMode.ForRead);
+                foreach (DBDictionaryEntry entry in layoutDict)
+                {
+                    var layout = tr.GetObject(entry.Value, OpenMode.ForRead) as Layout;
+                    if (layout == null) continue;
+                    if (string.Equals(layout.LayoutName, "Model", StringComparison.OrdinalIgnoreCase))
+                        continue;
+
+                    var btr = (BlockTableRecord)tr.GetObject(layout.BlockTableRecordId, OpenMode.ForRead);
+                    var vpExtents = new List<(double xMin, double yMin, double xMax, double yMax)>();
+                    int vpIdx = 0;
+                    foreach (ObjectId id in btr)
+                    {
+                        var vp = tr.GetObject(id, OpenMode.ForRead) as Viewport;
+                        if (vp == null) continue;
+                        vpIdx++;
+                        if (vpIdx == 1) continue; // pierwszy VP = paperspace overview
+
+                        double cx = vp.ViewCenter.X;
+                        double cy = vp.ViewCenter.Y;
+                        double h  = vp.ViewHeight;
+                        double w  = h * (vp.Width / vp.Height);
+                        vpExtents.Add((cx - w / 2, cy - h / 2, cx + w / 2, cy + h / 2));
+                    }
+
+                    string mainLayer  = null;
+                    bool hasSections  = false;
+                    bool hasPh        = false;
+                    bool hasDetail    = false;
+
+                    foreach (var (cat, x, y) in msTexts)
+                    {
+                        bool visible = vpExtents.Any(e => x >= e.xMin && x <= e.xMax && y >= e.yMin && y <= e.yMax);
+                        if (!visible) continue;
+
+                        switch (cat)
+                        {
+                            case MsTextCategory.MainBottom:
+                                if (mainLayer == null) mainLayer = "BOTTOM LAYER"; break;
+                            case MsTextCategory.MainTop:
+                                if (mainLayer == null) mainLayer = "TOP LAYER"; break;
+                            case MsTextCategory.Section: hasSections = true; break;
+                            case MsTextCategory.Ph:      hasPh = true;       break;
+                            case MsTextCategory.Detail:  hasDetail = true;   break;
+                        }
+                    }
+
+                    var parts = new List<string>();
+                    if (mainLayer != null) parts.Add(mainLayer);
+                    if (hasSections) parts.Add("SECTIONS");
+                    if (hasPh) parts.Add("PH DETAILS");
+                    if (hasDetail && !hasSections && !hasPh) parts.Add("DETAILS");
+
+                    string title3 = parts.Count > 0 ? string.Join(" & ", parts) + "." : "";
+                    result[layout.LayoutName] = title3;
+                }
+                tr.Commit();
+            }
+            return result;
+        }
+
         private static string BuildDrawingSuffix(int? plotNumber, int layoutIdx0Based)
         {
             if (plotNumber.HasValue)
@@ -1001,9 +1166,10 @@ namespace AsdRcSlab
             Database db,
             Dictionary<string, string> src,
             string[] tagsToCopy,
-            string gaTitlePrefix,      // może być null
-            string gaDrawingPrefix,    // może być null
-            int? plotNumberFromGa)     // jeden plot dla wszystkich layoutów, może być null
+            string gaTitlePrefix,
+            string gaDrawingPrefix,
+            int? plotNumberFromGa,
+            Dictionary<string, string> autoTitle3Map)
         {
             int updatedLayouts = 0;
             var tagsSet = new HashSet<string>(tagsToCopy, StringComparer.OrdinalIgnoreCase);
@@ -1066,6 +1232,16 @@ namespace AsdRcSlab
                             {
                                 string suffix = BuildDrawingSuffix(currentLayoutPlot, currentLayoutIdx);
                                 newVal = gaDrawingPrefix + "-" + suffix;
+                            }
+                            // TITLE_3: auto-wykrycie z viewportów
+                            else if (autoTitle3Map != null &&
+                                     string.Equals(att.Tag, "TITLE_3", StringComparison.OrdinalIgnoreCase))
+                            {
+                                if (autoTitle3Map.TryGetValue(layout.LayoutName, out string t3)
+                                    && !string.IsNullOrEmpty(t3))
+                                {
+                                    newVal = t3;
+                                }
                             }
                             // Standardowa obsługa CLIENT_* / PROJ_*
                             else if (tagsSet.Contains(att.Tag))
