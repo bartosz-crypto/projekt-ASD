@@ -1,6 +1,8 @@
 using Autodesk.AutoCAD.Ribbon;
 using Autodesk.Windows;
 using System.Windows.Controls;
+using System.Windows.Media;
+using System.Windows.Media.Imaging;
 
 namespace AsdRcSlab
 {
@@ -31,7 +33,7 @@ namespace AsdRcSlab
                 new[] {
                     ("Opisz z GA",      "ASD-GAI", "Import atrybutow z GA do tabelek tytulowych RC"),
                     ("Nazwy Rysunkow",  "ASD-RCN", "Auto-wypelnienie TITLE_3, SCALE, DATE + rename layoutow")
-                }, columnsPerRow: 2));
+                }, columnsPerRow: 1));
 
             tab.Panels.Add(CreatePanel("PH CONDITIONS",
                 new[] {
@@ -43,6 +45,20 @@ namespace AsdRcSlab
 
             ribbon.Tabs.Add(tab);
             tab.IsActive = true;
+        }
+
+        private static BitmapSource _placeholderImage;
+        private static BitmapSource GetPlaceholderImage()
+        {
+            if (_placeholderImage != null) return _placeholderImage;
+
+            int w = 32, h = 32;
+            int stride = w * 4;
+            var pixels = new byte[h * stride]; // transparent
+            _placeholderImage = BitmapSource.Create(
+                w, h, 96, 96, PixelFormats.Bgra32, null, pixels, stride);
+            _placeholderImage.Freeze();
+            return _placeholderImage;
         }
 
         private static RibbonPanel CreatePanel(
@@ -62,9 +78,10 @@ namespace AsdRcSlab
                     CommandHandler = new RibbonCommandHandler(cmd),
                     CommandParameter = cmd,
                     ShowText = true,
-                    ShowImage = false,
-                    Size = RibbonItemSize.Standard,
+                    ShowImage = true,
+                    Size = RibbonItemSize.Large,
                     Orientation = Orientation.Vertical,
+                    LargeImage = GetPlaceholderImage(),
                     ToolTip = tooltip
                 };
                 row.Items.Add(btn);
