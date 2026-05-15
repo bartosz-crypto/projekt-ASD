@@ -870,11 +870,14 @@ namespace AsdRcSlab
                     return;
                 }
 
+                string totalsLine = PhAssignResultsDialog.BuildPhTotalsLine(SessionData.Piles);
+
                 if (res.NotFound.Count > 0)
                 {
                     System.Windows.MessageBox.Show(
                         $"Podpisano {res.Annotated.Count} pali na rysunku.\n\n" +
-                        $"Nie znaleziono kółek/etykiet dla:\n{string.Join("\n", res.NotFound)}",
+                        $"Nie znaleziono kółek/etykiet dla:\n{string.Join("\n", res.NotFound)}\n\n" +
+                        totalsLine,
                         "Assign PH — wyniki", System.Windows.MessageBoxButton.OK,
                         System.Windows.MessageBoxImage.Warning);
                 }
@@ -882,7 +885,8 @@ namespace AsdRcSlab
                 {
                     System.Windows.MessageBox.Show(
                         $"Podpisano {res.Annotated.Count} pali na rysunku.\n" +
-                        $"Warstwy: {DrawingAnnotator.LayerPhText} (etykiety), {DrawingAnnotator.LayerPhHatch} (hatch).",
+                        $"Warstwy: {DrawingAnnotator.LayerPhText} (etykiety), {DrawingAnnotator.LayerPhHatch} (hatch).\n\n" +
+                        totalsLine,
                         "Assign PH — OK", System.Windows.MessageBoxButton.OK,
                         System.Windows.MessageBoxImage.Information);
                 }
