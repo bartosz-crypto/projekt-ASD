@@ -2,20 +2,44 @@ using OfficeOpenXml;
 using OfficeOpenXml.Style;
 using System;
 using System.Collections.Generic;
+using System.ComponentModel;
 using System.Drawing;
 using System.IO;
 using System.Linq;
+using System.Runtime.CompilerServices;
 using System.Windows;
 
 namespace AsdRcSlab
 {
-    public class PileViewModel
+    public class PileViewModel : INotifyPropertyChanged
     {
         public string PileId       { get; set; }
         public string UtilPctStr   { get; set; }
         public string LocationType { get; set; }
-        public string PhAction     { get; set; }
         public string DetailTitle  { get; set; }
+
+        private string _phAction;
+        public string PhAction
+        {
+            get => _phAction;
+            set
+            {
+                if (_phAction == value) return;
+                _phAction = value;
+                var pile = SessionData.Piles?.FirstOrDefault(p =>
+                    string.Equals(p.PileId, PileId, StringComparison.OrdinalIgnoreCase));
+                if (pile != null)
+                    pile.PhAction = value;
+                OnPropertyChanged();
+                PhActionChanged?.Invoke(this, EventArgs.Empty);
+            }
+        }
+
+        public static event EventHandler PhActionChanged;
+
+        public event PropertyChangedEventHandler PropertyChanged;
+        private void OnPropertyChanged([CallerMemberName] string name = null)
+            => PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(name));
     }
 
     public partial class PhAssignResultsDialog : Window
@@ -26,10 +50,26 @@ namespace AsdRcSlab
         {
             InitializeComponent();
             _piles = piles;
+
             BtnUpdateDrawing.Visibility = showUpdateButton
                 ? Visibility.Visible
                 : Visibility.Collapsed;
+
+            Grid.IsReadOnly = !showUpdateButton;
+
             Populate();
+
+            if (showUpdateButton)
+            {
+                PileViewModel.PhActionChanged += OnPhActionChanged;
+                this.Closed += (s, e) => { PileViewModel.PhActionChanged -= OnPhActionChanged; };
+            }
+        }
+
+        private void OnPhActionChanged(object sender, EventArgs e)
+        {
+            UpdateStats();
+            Grid.Items.Refresh();
         }
 
         private void Populate()
