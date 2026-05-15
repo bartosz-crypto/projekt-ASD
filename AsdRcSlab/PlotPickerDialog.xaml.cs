@@ -44,7 +44,7 @@ namespace AsdRcSlab
             public PlotDisplayItem(PlotInfo info)
             {
                 Info  = info;
-                Line1 = $"PLOT {info.Number} ({info.PileCount} piles)";
+                Line1 = info.DisplayName;
 
                 var sb = new StringBuilder($"INT: {info.InternalCount}  EDGE: {info.EdgeCount}  CORNER: {info.CornerCount}");
                 if (info.ReentrantCount > 0)

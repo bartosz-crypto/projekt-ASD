@@ -16,7 +16,7 @@ namespace AsdRcSlab
         private const int    ColReinf  = 20;
 
         private static readonly Regex _plotRx = new Regex(
-            @"^PLOT\s+(\d+)\s*\((\d+)\s*piles?\)",
+            @"^PLOT\s+(\d+)(?:\s*-\s*(\d+))?\s*\((\d+)\s*piles?\)",
             RegexOptions.IgnoreCase | RegexOptions.Compiled);
 
         private static readonly Regex _sectionRx = new Regex(
@@ -57,11 +57,16 @@ namespace AsdRcSlab
                     if (pm.Success)
                     {
                         if (current != null) current.EndRow = r - 1;
+                        int first     = int.Parse(pm.Groups[1].Value);
+                        int last      = pm.Groups[2].Success ? int.Parse(pm.Groups[2].Value) : first;
+                        int pileCount = int.Parse(pm.Groups[3].Value);
                         current = new PlotInfo
                         {
-                            Number    = int.Parse(pm.Groups[1].Value),
-                            PileCount = int.Parse(pm.Groups[2].Value),
-                            StartRow  = r
+                            RawHeader       = c1,
+                            FirstPlotNumber = first,
+                            LastPlotNumber  = last,
+                            PileCount       = pileCount,
+                            StartRow        = r
                         };
                         plots.Add(current);
                         continue;
