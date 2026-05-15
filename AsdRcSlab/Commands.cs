@@ -856,40 +856,6 @@ namespace AsdRcSlab
                 var dlg = new PhAssignResultsDialog(SessionData.Piles);
                 AcApp.ShowModalWindow(AcApp.MainWindow.Handle, dlg, false);
 
-                // Annotuj rysunek (znajdź kółka i podpisz PH)
-                var res = DrawingAnnotator.Annotate(SessionData.Piles);
-                doc.Editor.WriteMessage($"\nPAA: {res.Log.Replace("\n", " ")}");
-
-                if (res.WrongDrawing)
-                {
-                    System.Windows.MessageBox.Show(
-                        res.Log,
-                        "Assign PH — zły rysunek",
-                        System.Windows.MessageBoxButton.OK,
-                        System.Windows.MessageBoxImage.Warning);
-                    return;
-                }
-
-                string totalsLine = PhAssignResultsDialog.BuildPhTotalsLine(SessionData.Piles);
-
-                if (res.NotFound.Count > 0)
-                {
-                    System.Windows.MessageBox.Show(
-                        $"Podpisano {res.Annotated.Count} pali na rysunku.\n\n" +
-                        $"Nie znaleziono kółek/etykiet dla:\n{string.Join("\n", res.NotFound)}\n\n" +
-                        totalsLine,
-                        "Assign PH — wyniki", System.Windows.MessageBoxButton.OK,
-                        System.Windows.MessageBoxImage.Warning);
-                }
-                else if (res.Annotated.Count > 0)
-                {
-                    System.Windows.MessageBox.Show(
-                        $"Podpisano {res.Annotated.Count} pali na rysunku.\n" +
-                        $"Warstwy: {DrawingAnnotator.LayerPhText} (etykiety), {DrawingAnnotator.LayerPhHatch} (hatch).\n\n" +
-                        totalsLine,
-                        "Assign PH — OK", System.Windows.MessageBoxButton.OK,
-                        System.Windows.MessageBoxImage.Information);
-                }
             }
             catch (System.Exception ex)
             {
