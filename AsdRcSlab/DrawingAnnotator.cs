@@ -35,6 +35,18 @@ namespace AsdRcSlab
 
             var db = doc.Database;
 
+            // ── Pre-check: ensure this is a Speedeck drawing before modifying anything
+            if (!CheckSpeeddeckTitle(db))
+            {
+                result.WrongDrawing = true;
+                result.Log = "Rysunek nie zawiera tytułu 'SPEEDECK PILED RAFT FOUNDATION'.\n" +
+                             "Upewnij się, że aktywny dokument to właściwy rysunek zbrojenia.";
+                return result;
+            }
+
+            // ── Cleanup encji z poprzedniego runu zanim dodamy nowe (idempotent)
+            CleanupPreviousAnnotations(db);
+
             using (var tr = db.TransactionManager.StartTransaction())
             {
                 var bt  = (BlockTable)tr.GetObject(db.BlockTableId, OpenMode.ForRead);
@@ -76,15 +88,6 @@ namespace AsdRcSlab
 
                 result.TotalCircles = allCircles.Count;
                 result.TotalTexts   = allTexts.Count;
-
-                // ── 1b. Verify this is a Speedeck piled raft drawing ─────────────────
-                if (!HasSpeeddeckTitle(tr, btr))
-                {
-                    result.WrongDrawing = true;
-                    result.Log = "Rysunek nie zawiera tytułu 'SPEEDECK PILED RAFT FOUNDATION'.\n" +
-                                 "Upewnij się, że aktywny dokument to właściwy rysunek zbrojenia.";
-                    return result;
-                }
 
                 // ── 2. Detect existing PH annotation style ───────────────────────────
                 string detectedLayer = LayerPhText;
@@ -189,6 +192,48 @@ namespace AsdRcSlab
 
             result.Log += BuildLog(result);
             return result;
+        }
+
+        // ── Cleanup helpers ──────────────────────────────────────────────────────────
+
+        private static bool CheckSpeeddeckTitle(Database db)
+        {
+            using (var tr = db.TransactionManager.StartTransaction())
+            {
+                var bt  = (BlockTable)tr.GetObject(db.BlockTableId, OpenMode.ForRead);
+                var btr = (BlockTableRecord)tr.GetObject(bt[BlockTableRecord.ModelSpace], OpenMode.ForRead);
+                return HasSpeeddeckTitle(tr, btr);
+                // Dispose without Commit = Abort; fine for read-only
+            }
+        }
+
+        private static void CleanupPreviousAnnotations(Database db)
+        {
+            using (var tr = db.TransactionManager.StartTransaction())
+            {
+                var bt = (BlockTable)tr.GetObject(db.BlockTableId, OpenMode.ForRead);
+                var ms = (BlockTableRecord)tr.GetObject(bt[BlockTableRecord.ModelSpace], OpenMode.ForWrite);
+
+                var toDelete = new List<ObjectId>();
+                foreach (ObjectId id in ms)
+                {
+                    var ent = tr.GetObject(id, OpenMode.ForRead) as Entity;
+                    if (ent == null) continue;
+                    if (string.Equals(ent.Layer, LayerPhText,  StringComparison.OrdinalIgnoreCase) ||
+                        string.Equals(ent.Layer, LayerPhHatch, StringComparison.OrdinalIgnoreCase))
+                    {
+                        toDelete.Add(id);
+                    }
+                }
+
+                foreach (var id in toDelete)
+                {
+                    var ent = (Entity)tr.GetObject(id, OpenMode.ForWrite);
+                    ent.Erase();
+                }
+
+                tr.Commit();
+            }
         }
 
         // ── AP-TEXT template updater ─────────────────────────────────────────────────
