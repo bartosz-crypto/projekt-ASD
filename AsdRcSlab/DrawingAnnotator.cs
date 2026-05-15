@@ -185,19 +185,10 @@ namespace AsdRcSlab
                 }
 
                 var phLogSb = new StringBuilder();
-                result.PhLabelsUpdated = AnnotatePhDetailLabels(tr, btr, phLogSb);
+                var (phLabels, unusedMarked) = AnnotatePhDetailLabels(tr, btr, db, phLogSb);
+                result.PhLabelsUpdated = phLabels;
+                result.UnusedMarked    = unusedMarked;
                 result.Log += phLogSb.ToString();
-
-                // Oznacz krzyżem detale PH które nie mają żadnej pali w SessionData
-                try
-                {
-                    result.UnusedMarked = MarkUnusedDetails(piles, tr, btr, db);
-                    result.Log += $"Oznaczono niewykorzystane detale: {result.UnusedMarked}\n";
-                }
-                catch (System.Exception ex)
-                {
-                    result.Log += $"Błąd oznaczania niewykorzystanych: {ex.Message}\n";
-                }
 
                 tr.Commit();
             }
@@ -251,7 +242,8 @@ namespace AsdRcSlab
 
         // ── AP-TEXT template updater ─────────────────────────────────────────────────
 
-        private static int AnnotatePhDetailLabels(Transaction tr, BlockTableRecord btr, StringBuilder log)
+        private static (int PhLabelsUpdated, int UnusedMarked) AnnotatePhDetailLabels(
+            Transaction tr, BlockTableRecord btr, Database db, StringBuilder log)
         {
             var phRegex   = new Regex(@"\bPH3-RE\b|\bPH([1-9])\b");
             // Loosened: matches anything from '(' through 'No...LOCATIONS?' to ')'.
@@ -261,6 +253,7 @@ namespace AsdRcSlab
             var applRegex = new Regex(@"APPLICABLE FOR PILES?[^}]*");
 
             int updatedCount = 0;
+            int unusedMarked = 0;
             int skippedNoPh  = 0;
 
             foreach (ObjectId id in btr)
@@ -296,7 +289,7 @@ namespace AsdRcSlab
                 string pileListJoined = string.Join(", ", piles);
                 string applReplacement;
                 if (piles.Count == 0)
-                    applReplacement = "APPLICABLE FOR PILE/S —"; // em-dash, brak pali
+                    applReplacement = "APPLICABLE FOR PILE/S —";
                 else if (piles.Count == 1)
                     applReplacement = $"APPLICABLE FOR PILE {pileListJoined}";
                 else
@@ -308,87 +301,42 @@ namespace AsdRcSlab
                 string logSuffix = piles.Count > 0 ? $": {pileListJoined}" : "";
                 log.AppendLine($"  AP-TEXT [{phKey}]: zaktualizowano ({piles.Count} pali{logSuffix})");
                 updatedCount++;
-            }
 
-            log.AppendLine($"AnnotatePhDetailLabels: zaktualizowano {updatedCount}, pominięto " +
-                           $"{skippedNoPh} (brak PH w treści).");
-            return updatedCount;
-        }
-
-        // Skanuje szablony AP-TEXT, znajduje te z PH które ma 0 pali,
-        // rysuje krzyż "X" przez bbox MText szablonu. Wywoływana w tej samej
-        // transakcji co Annotate — btr musi być już ForWrite.
-        private static int MarkUnusedDetails(
-            List<PileData> piles,
-            Transaction tr,
-            BlockTableRecord btr,
-            Database db)
-        {
-            int markedCount = 0;
-
-            int CountFor(string ph) => piles.Count(p =>
-                string.Equals(p.PhAction, ph, StringComparison.OrdinalIgnoreCase));
-
-            var unusedPhs = new List<string>();
-            for (int n = 1; n <= 9; n++)
-                if (CountFor("PH" + n) == 0) unusedPhs.Add("PH" + n);
-            if (CountFor("PH3-RE") == 0) unusedPhs.Add("PH3-RE");
-
-            if (unusedPhs.Count == 0) return 0;
-
-            EnsureLayer(tr, db, LayerNotUsed, 1); // czerwony
-
-            var templatesToMark = new List<MText>();
-            foreach (ObjectId id in btr)
-            {
-                MText ent;
-                try { ent = tr.GetObject(id, OpenMode.ForRead) as MText; }
-                catch { continue; }
-                if (ent == null) continue;
-                if (!string.Equals(ent.Layer, "AP-TEXT", StringComparison.OrdinalIgnoreCase))
-                    continue;
-
-                string clean = Regex.Replace(ent.Contents ?? "", @"\\[A-Za-z][^;]*;", "");
-
-                // Dopasuj PH3-RE przed PH3 (longer match first) żeby uniknąć false positive
-                foreach (var ph in unusedPhs.OrderByDescending(p => p.Length))
+                // Gdy PH bez pali — narysuj czerwony krzyż przez bbox szablonu
+                if (piles.Count == 0)
                 {
-                    var rx = new Regex(
-                        @"\b" + Regex.Escape(ph) + @"\b",
-                        RegexOptions.IgnoreCase);
-                    if (rx.IsMatch(clean))
+                    try
                     {
-                        templatesToMark.Add(ent);
-                        break;
+                        EnsureLayer(tr, db, LayerNotUsed, 1);
+                        var ext = ent.GeometricExtents;
+                        double x1 = ext.MinPoint.X, y1 = ext.MinPoint.Y;
+                        double x2 = ext.MaxPoint.X, y2 = ext.MaxPoint.Y;
+
+                        var line1 = new Line(new Point3d(x1, y1, 0), new Point3d(x2, y2, 0));
+                        line1.Layer      = LayerNotUsed;
+                        line1.ColorIndex = 1;
+                        btr.AppendEntity(line1);
+                        tr.AddNewlyCreatedDBObject(line1, true);
+
+                        var line2 = new Line(new Point3d(x1, y2, 0), new Point3d(x2, y1, 0));
+                        line2.Layer      = LayerNotUsed;
+                        line2.ColorIndex = 1;
+                        btr.AppendEntity(line2);
+                        tr.AddNewlyCreatedDBObject(line2, true);
+
+                        unusedMarked++;
+                    }
+                    catch (System.Exception ex)
+                    {
+                        AcApp.DocumentManager.MdiActiveDocument?.Editor
+                            ?.WriteMessage($"\nAP-NOTUSED cross fail for {phKey}: {ex.Message}");
                     }
                 }
             }
 
-            foreach (var mt in templatesToMark)
-            {
-                Extents3d ext;
-                try { ext = mt.GeometricExtents; }
-                catch { continue; } // puste MText bez extentów
-
-                double x1 = ext.MinPoint.X, y1 = ext.MinPoint.Y;
-                double x2 = ext.MaxPoint.X, y2 = ext.MaxPoint.Y;
-
-                var line1 = new Line(new Point3d(x1, y1, 0), new Point3d(x2, y2, 0));
-                line1.Layer      = LayerNotUsed;
-                line1.ColorIndex = 1; // jawnie czerwony — przebija kolor warstwy
-                btr.AppendEntity(line1);
-                tr.AddNewlyCreatedDBObject(line1, true);
-
-                var line2 = new Line(new Point3d(x1, y2, 0), new Point3d(x2, y1, 0));
-                line2.Layer      = LayerNotUsed;
-                line2.ColorIndex = 1;
-                btr.AppendEntity(line2);
-                tr.AddNewlyCreatedDBObject(line2, true);
-
-                markedCount++;
-            }
-
-            return markedCount;
+            log.AppendLine($"AnnotatePhDetailLabels: zaktualizowano {updatedCount}, pominięto " +
+                           $"{skippedNoPh} (brak PH w treści).");
+            return (updatedCount, unusedMarked);
         }
 
         private static int ExtractFirstNumber(string s)
