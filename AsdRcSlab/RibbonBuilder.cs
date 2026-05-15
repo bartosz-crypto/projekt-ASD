@@ -1,8 +1,6 @@
 using Autodesk.AutoCAD.Ribbon;
 using Autodesk.Windows;
 using System.Windows.Controls;
-using System.Windows.Media;
-using System.Windows.Media.Imaging;
 
 namespace AsdRcSlab
 {
@@ -47,20 +45,6 @@ namespace AsdRcSlab
             tab.IsActive = true;
         }
 
-        private static BitmapSource _placeholderImage;
-        private static BitmapSource GetPlaceholderImage()
-        {
-            if (_placeholderImage != null) return _placeholderImage;
-
-            int w = 32, h = 32;
-            int stride = w * 4;
-            var pixels = new byte[h * stride]; // transparent
-            _placeholderImage = BitmapSource.Create(
-                w, h, 96, 96, PixelFormats.Bgra32, null, pixels, stride);
-            _placeholderImage.Freeze();
-            return _placeholderImage;
-        }
-
         private static RibbonPanel CreatePanel(
             string title,
             (string label, string cmd, string tooltip)[] buttons,
@@ -78,10 +62,10 @@ namespace AsdRcSlab
                     CommandHandler = new RibbonCommandHandler(cmd),
                     CommandParameter = cmd,
                     ShowText = true,
-                    ShowImage = true,
-                    Size = RibbonItemSize.Large,
-                    Orientation = Orientation.Vertical,
-                    LargeImage = GetPlaceholderImage(),
+                    ShowImage = false,
+                    Size = RibbonItemSize.Standard,
+                    Width = 150,
+                    MinWidth = 150,
                     ToolTip = tooltip
                 };
                 row.Items.Add(btn);
