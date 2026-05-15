@@ -31,7 +31,7 @@ namespace AsdRcSlab
                 new[] {
                     ("Opisz z GA",      "ASD-GAI", "Import atrybutow z GA do tabelek tytulowych RC"),
                     ("Nazwy Rysunkow",  "ASD-RCN", "Auto-wypelnienie TITLE_3, SCALE, DATE + rename layoutow")
-                }));
+                }, columnsPerRow: 2));
 
             tab.Panels.Add(CreatePanel("PH CONDITIONS",
                 new[] {
@@ -39,19 +39,23 @@ namespace AsdRcSlab
                     ("Assign PH",        "ASD-PAA",  "Przypisuje PH1-PH9 i generuje tytuly detali"),
                     ("PH Report",        "ASD-PHR",  "Generuje PH_Report.xlsx"),
                     ("Waliduj PH",       "ASD-PHV",  "Sprawdza R77, R79, duplikaty")
-                }));
+                }, columnsPerRow: 2));
 
             ribbon.Tabs.Add(tab);
             tab.IsActive = true;
         }
 
-        private static RibbonPanel CreatePanel(string title, (string label, string cmd, string tooltip)[] buttons)
+        private static RibbonPanel CreatePanel(
+            string title,
+            (string label, string cmd, string tooltip)[] buttons,
+            int columnsPerRow = 1)
         {
             RibbonPanelSource source = new RibbonPanelSource { Title = title };
             RibbonRowPanel row = new RibbonRowPanel();
 
-            foreach (var (label, cmd, tooltip) in buttons)
+            for (int i = 0; i < buttons.Length; i++)
             {
+                var (label, cmd, tooltip) = buttons[i];
                 RibbonButton btn = new RibbonButton
                 {
                     Text = label,
@@ -64,7 +68,11 @@ namespace AsdRcSlab
                     ToolTip = tooltip
                 };
                 row.Items.Add(btn);
-                row.Items.Add(new RibbonRowBreak());
+
+                bool isLast = (i == buttons.Length - 1);
+                bool endOfRow = ((i + 1) % columnsPerRow == 0);
+                if (endOfRow && !isLast)
+                    row.Items.Add(new RibbonRowBreak());
             }
 
             source.Items.Add(row);
