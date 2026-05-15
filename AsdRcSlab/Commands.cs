@@ -1,6 +1,7 @@
 using Autodesk.AutoCAD.Runtime;
 using Autodesk.AutoCAD.DatabaseServices;
 using Autodesk.AutoCAD.EditorInput;
+using Autodesk.AutoCAD.Geometry;
 using AcApp = Autodesk.AutoCAD.ApplicationServices.Application;
 using Newtonsoft.Json;
 using System;
@@ -19,6 +20,7 @@ namespace AsdRcSlab
         private const string TitleBlockName    = "A1-BL";
         private const string GaSlabNotesLayer  = "PCN-Text";
         private const string RcSlabNotesLayer  = "SD-Text";
+        private const string RcnRefsLayer      = "ASD-RCN-REFS";
         private const string KeySlabArea             = "SLAB_AREA";
         private const string KeySlabPerimeter        = "SLAB_PERIMETER";
         private const string KeySlabThickness        = "SLAB_THICKNESS";
@@ -416,6 +418,13 @@ namespace AsdRcSlab
             sb.AppendLine("  (np. SL44QR001-RC030 → RC030C1)");
 
             sb.AppendLine();
+            sb.AppendLine("ODNOŚNIKI \"SEE DRG\":");
+            sb.AppendLine($"  Każdy layout dostanie ramki do wszystkich pozostałych.");
+            sb.AppendLine($"  Warstwa: {RcnRefsLayer} (tworzona jeśli nie istnieje).");
+            sb.AppendLine($"  Pozycja: x=900, y od 580 w dół (poza A1 sheet).");
+            sb.AppendLine($"  Istniejące ramki na tej warstwie zostaną zastąpione.");
+
+            sb.AppendLine();
             sb.AppendLine("Zastosować?");
 
             var result = MessageBox.Show(
@@ -458,12 +467,25 @@ namespace AsdRcSlab
                 ed.WriteMessage($"\nRCN: rename layoutów nie powiódł się: {ex.Message}");
             }
 
-            // 5. Podsumowanie
+            // 5. Stwórz ramki z odnośnikami "SEE DRG ..."
+            int refFrames = 0;
+            try
+            {
+                refFrames = CreateReferenceFramesOnAllLayouts(db);
+            }
+            catch (System.Exception ex)
+            {
+                ed.WriteMessage($"\nRCN: błąd tworzenia ramek odnośników: {ex.Message}");
+                ed.WriteMessage($"\nRCN REFS EXCEPTION: {ex}");
+            }
+
+            // 6. Podsumowanie
             string summary = $"ASD-RCN — gotowe.\n\n" +
                              $"Zaktualizowano atrybuty w {updatedLayouts} layoutach.\n" +
-                             $"Zmieniono nazwy {renamedLayouts} layoutów.";
+                             $"Zmieniono nazwy {renamedLayouts} layoutów.\n" +
+                             $"Wstawiono {refFrames} ramek z odnośnikami (warstwa {RcnRefsLayer}).";
             MessageBox.Show(summary, "ASD-RCN", MessageBoxButton.OK, MessageBoxImage.Information);
-            ed.WriteMessage($"\nRCN: zaktualizowano {updatedLayouts}, rename {renamedLayouts}.");
+            ed.WriteMessage($"\nRCN: zaktualizowano {updatedLayouts}, rename {renamedLayouts}, refs {refFrames}.");
         }
 
         [CommandMethod("ASD-SET")]
@@ -1630,6 +1652,162 @@ namespace AsdRcSlab
             }
 
             return updatedLayouts;
+        }
+
+        // Wstawia ramki z odnośnikami "SEE DRG ..." na każdym layoutcie RC.
+        // Każdy layout dostaje ramki do wszystkich POZOSTAŁYCH layoutów.
+        // Wymaga że TITLE_3 i DRAWING_NUMBER są już zapisane w atrybutach A1-BL.
+        // Zwraca łączną liczbę wstawionych ramek.
+        private static int CreateReferenceFramesOnAllLayouts(Database db)
+        {
+            var ed = AcApp.DocumentManager.MdiActiveDocument.Editor;
+
+            // 1. Zbierz dane: layoutName → (title3, drawingNo)
+            var layoutData = new List<(string name, string title3, string drawingNo)>();
+            using (var tr = db.TransactionManager.StartTransaction())
+            {
+                var layoutDict = (DBDictionary)tr.GetObject(db.LayoutDictionaryId, OpenMode.ForRead);
+                foreach (DBDictionaryEntry entry in layoutDict)
+                {
+                    var layout = tr.GetObject(entry.Value, OpenMode.ForRead) as Layout;
+                    if (layout == null) continue;
+                    if (string.Equals(layout.LayoutName, "Model", StringComparison.OrdinalIgnoreCase))
+                        continue;
+
+                    string title3 = null, drawingNo = null;
+                    var btr = (BlockTableRecord)tr.GetObject(layout.BlockTableRecordId, OpenMode.ForRead);
+                    foreach (ObjectId oid in btr)
+                    {
+                        var br = tr.GetObject(oid, OpenMode.ForRead) as BlockReference;
+                        if (br == null) continue;
+                        if (!string.Equals(br.Name, TitleBlockName, StringComparison.OrdinalIgnoreCase))
+                            continue;
+                        foreach (ObjectId aid in br.AttributeCollection)
+                        {
+                            var att = tr.GetObject(aid, OpenMode.ForRead) as AttributeReference;
+                            if (att == null) continue;
+                            if (string.Equals(att.Tag, "TITLE_3", StringComparison.OrdinalIgnoreCase))
+                                title3 = att.TextString;
+                            else if (string.Equals(att.Tag, "DRAWING_NUMBER", StringComparison.OrdinalIgnoreCase))
+                                drawingNo = att.TextString;
+                        }
+                        break;
+                    }
+
+                    if (!string.IsNullOrEmpty(title3) && !string.IsNullOrEmpty(drawingNo))
+                        layoutData.Add((layout.LayoutName, title3, drawingNo));
+                }
+                tr.Commit();
+            }
+
+            layoutData = layoutData.OrderBy(d => d.name, StringComparer.OrdinalIgnoreCase).ToList();
+
+            if (layoutData.Count < 2)
+            {
+                ed.WriteMessage($"\nRCN-REFS: za mało layoutów ({layoutData.Count}), brak ramek do wstawienia.");
+                return 0;
+            }
+
+            // 2. Upewnij się że warstwa ASD-RCN-REFS istnieje
+            using (var tr = db.TransactionManager.StartTransaction())
+            {
+                var lt = (LayerTable)tr.GetObject(db.LayerTableId, OpenMode.ForRead);
+                if (!lt.Has(RcnRefsLayer))
+                {
+                    lt.UpgradeOpen();
+                    var ltr = new LayerTableRecord
+                    {
+                        Name = RcnRefsLayer,
+                        Color = Autodesk.AutoCAD.Colors.Color.FromColorIndex(
+                            Autodesk.AutoCAD.Colors.ColorMethod.ByAci, 3)
+                    };
+                    lt.Add(ltr);
+                    tr.AddNewlyCreatedDBObject(ltr, true);
+                }
+                tr.Commit();
+            }
+
+            // 3. Dla każdego layoutu: wyczyść warstwę i wstaw ramki
+            const double frameWidth  = 100;
+            const double frameHeight = 18;
+            const double rowGap      = 4;
+            const double startX      = 900;
+            const double startY      = 580;
+            const double innerPad    = 2;
+
+            int totalFrames = 0;
+
+            using (var tr = db.TransactionManager.StartTransaction())
+            {
+                var styleTable = (TextStyleTable)tr.GetObject(db.TextStyleTableId, OpenMode.ForRead);
+                ObjectId textStyleId = ObjectId.Null;
+                if (styleTable.Has("ROMANS NARROW"))
+                    textStyleId = styleTable["ROMANS NARROW"];
+
+                var layoutDict = (DBDictionary)tr.GetObject(db.LayoutDictionaryId, OpenMode.ForRead);
+                foreach (DBDictionaryEntry entry in layoutDict)
+                {
+                    var layout = tr.GetObject(entry.Value, OpenMode.ForRead) as Layout;
+                    if (layout == null) continue;
+                    if (string.Equals(layout.LayoutName, "Model", StringComparison.OrdinalIgnoreCase))
+                        continue;
+
+                    var btr = (BlockTableRecord)tr.GetObject(layout.BlockTableRecordId, OpenMode.ForWrite);
+
+                    // 3a. Wyczyść poprzednie ramki na ASD-RCN-REFS
+                    var toDelete = new List<ObjectId>();
+                    foreach (ObjectId oid in btr)
+                    {
+                        var ent = tr.GetObject(oid, OpenMode.ForRead) as Entity;
+                        if (ent == null) continue;
+                        if (string.Equals(ent.Layer, RcnRefsLayer, StringComparison.OrdinalIgnoreCase))
+                            toDelete.Add(oid);
+                    }
+                    foreach (var id in toDelete)
+                    {
+                        var ent = (Entity)tr.GetObject(id, OpenMode.ForWrite);
+                        ent.Erase();
+                    }
+
+                    // 3b. Wstaw ramki dla pozostałych layoutów
+                    int frameIdx = 0;
+                    foreach (var other in layoutData)
+                    {
+                        if (string.Equals(other.name, layout.LayoutName, StringComparison.OrdinalIgnoreCase))
+                            continue;
+
+                        double y = startY - (frameIdx * (frameHeight + rowGap));
+
+                        var pl = new Polyline();
+                        pl.AddVertexAt(0, new Point2d(startX, y), 0, 0, 0);
+                        pl.AddVertexAt(1, new Point2d(startX + frameWidth, y), 0, 0, 0);
+                        pl.AddVertexAt(2, new Point2d(startX + frameWidth, y - frameHeight), 0, 0, 0);
+                        pl.AddVertexAt(3, new Point2d(startX, y - frameHeight), 0, 0, 0);
+                        pl.Closed = true;
+                        pl.Layer = RcnRefsLayer;
+                        btr.AppendEntity(pl);
+                        tr.AddNewlyCreatedDBObject(pl, true);
+
+                        string titleNoDot = (other.title3 ?? "").TrimEnd('.', ' ');
+                        var mt = new MText();
+                        mt.Location = new Point3d(startX + innerPad, y - innerPad, 0);
+                        mt.Width = frameWidth - 2 * innerPad;
+                        mt.TextHeight = 4.0;
+                        mt.Attachment = AttachmentPoint.TopLeft;
+                        mt.Layer = RcnRefsLayer;
+                        if (!textStyleId.IsNull) mt.TextStyleId = textStyleId;
+                        mt.Contents = $"\\C3;{titleNoDot}\\PSEE DRG. {other.drawingNo}";
+                        btr.AppendEntity(mt);
+                        tr.AddNewlyCreatedDBObject(mt, true);
+
+                        frameIdx++;
+                        totalFrames++;
+                    }
+                }
+                tr.Commit();
+            }
+
+            return totalFrames;
         }
 
         // ── PANEL 4: QA VALIDATOR ─────────────────────────────────────────────
