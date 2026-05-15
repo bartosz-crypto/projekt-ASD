@@ -313,7 +313,7 @@ namespace AsdRcSlab
         }
 
         // Skanuje szablony AP-TEXT, znajduje te z PH które ma 0 pali,
-        // rysuje krzyż "X" przez najbliższy Circle. Wywoływana w tej samej
+        // rysuje krzyż "X" przez bbox MText szablonu. Wywoływana w tej samej
         // transakcji co Annotate — btr musi być już ForWrite.
         private static int MarkUnusedDetails(
             List<PileData> piles,
@@ -335,60 +335,50 @@ namespace AsdRcSlab
 
             EnsureLayer(tr, db, LayerNotUsed, 1); // czerwony
 
-            var templates = new List<(string phKey, Point3d pos)>();
-            var circles   = new List<(ObjectId id, Point3d center, double radius)>();
-
+            var templatesToMark = new List<MText>();
             foreach (ObjectId id in btr)
             {
-                try
+                MText ent;
+                try { ent = tr.GetObject(id, OpenMode.ForRead) as MText; }
+                catch { continue; }
+                if (ent == null) continue;
+                if (!string.Equals(ent.Layer, "AP-TEXT", StringComparison.OrdinalIgnoreCase))
+                    continue;
+
+                string clean = Regex.Replace(ent.Contents ?? "", @"\\[A-Za-z][^;]*;", "");
+
+                // Dopasuj PH3-RE przed PH3 (longer match first) żeby uniknąć false positive
+                foreach (var ph in unusedPhs.OrderByDescending(p => p.Length))
                 {
-                    var ent = tr.GetObject(id, OpenMode.ForRead);
-                    if (ent is MText mt &&
-                        string.Equals(mt.Layer, "AP-TEXT", StringComparison.OrdinalIgnoreCase))
+                    var rx = new Regex(
+                        @"\b" + Regex.Escape(ph) + @"\b",
+                        RegexOptions.IgnoreCase);
+                    if (rx.IsMatch(clean))
                     {
-                        string clean = Regex.Replace(mt.Contents ?? "", @"\\[A-Za-z][^;]*;", "");
-                        foreach (var ph in unusedPhs)
-                        {
-                            if (clean.IndexOf(ph, StringComparison.OrdinalIgnoreCase) >= 0)
-                            {
-                                templates.Add((ph, mt.Location));
-                                break;
-                            }
-                        }
-                    }
-                    else if (ent is Circle c)
-                    {
-                        circles.Add((c.ObjectId, c.Center, c.Radius));
+                        templatesToMark.Add(ent);
+                        break;
                     }
                 }
-                catch { /* locked or proxy entities */ }
             }
 
-            if (templates.Count == 0 || circles.Count == 0) return 0;
-
-            foreach (var (phKey, mtPos) in templates)
+            foreach (var mt in templatesToMark)
             {
-                var nearest = circles
-                    .OrderBy(c => (c.center - mtPos).Length)
-                    .FirstOrDefault();
-                if (nearest.id.IsNull) continue;
+                Extents3d ext;
+                try { ext = mt.GeometricExtents; }
+                catch { continue; } // puste MText bez extentów
 
-                double r  = nearest.radius;
-                double cx = nearest.center.X;
-                double cy = nearest.center.Y;
-                double rd = r * 0.707; // r/sqrt(2) — punkty na okręgu pod 45°
+                double x1 = ext.MinPoint.X, y1 = ext.MinPoint.Y;
+                double x2 = ext.MaxPoint.X, y2 = ext.MaxPoint.Y;
 
-                var line1 = new Line(
-                    new Point3d(cx - rd, cy + rd, 0),
-                    new Point3d(cx + rd, cy - rd, 0));
-                line1.Layer = LayerNotUsed;
+                var line1 = new Line(new Point3d(x1, y1, 0), new Point3d(x2, y2, 0));
+                line1.Layer      = LayerNotUsed;
+                line1.ColorIndex = 1; // jawnie czerwony — przebija kolor warstwy
                 btr.AppendEntity(line1);
                 tr.AddNewlyCreatedDBObject(line1, true);
 
-                var line2 = new Line(
-                    new Point3d(cx - rd, cy - rd, 0),
-                    new Point3d(cx + rd, cy + rd, 0));
-                line2.Layer = LayerNotUsed;
+                var line2 = new Line(new Point3d(x1, y2, 0), new Point3d(x2, y1, 0));
+                line2.Layer      = LayerNotUsed;
+                line2.ColorIndex = 1;
                 btr.AppendEntity(line2);
                 tr.AddNewlyCreatedDBObject(line2, true);
 
