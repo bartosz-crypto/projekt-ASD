@@ -1791,6 +1791,7 @@ namespace AsdRcSlab
                         pl.AddVertexAt(3, new Point2d(startX, y - frameHeight), 0, 0, 0);
                         pl.Closed = true;
                         pl.Layer = RcnRefsLayer;
+                        pl.ColorIndex = 7;
                         btr.AppendEntity(pl);
                         tr.AddNewlyCreatedDBObject(pl, true);
 
