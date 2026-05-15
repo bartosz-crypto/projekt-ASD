@@ -1719,17 +1719,23 @@ namespace AsdRcSlab
                     {
                         Name = RcnRefsLayer,
                         Color = Autodesk.AutoCAD.Colors.Color.FromColorIndex(
-                            Autodesk.AutoCAD.Colors.ColorMethod.ByAci, 3)
+                            Autodesk.AutoCAD.Colors.ColorMethod.ByAci, 7)
                     };
                     lt.Add(ltr);
                     tr.AddNewlyCreatedDBObject(ltr, true);
+                }
+                else
+                {
+                    var ltr = (LayerTableRecord)tr.GetObject(lt[RcnRefsLayer], OpenMode.ForWrite);
+                    ltr.Color = Autodesk.AutoCAD.Colors.Color.FromColorIndex(
+                        Autodesk.AutoCAD.Colors.ColorMethod.ByAci, 7);
                 }
                 tr.Commit();
             }
 
             // 3. Dla każdego layoutu: wyczyść warstwę i wstaw ramki
-            const double frameWidth  = 100;
-            const double frameHeight = 18;
+            const double frameWidth  = 95;
+            const double frameHeight = 15;
             const double rowGap      = 4;
             const double startX      = 900;
             const double startY      = 580;
