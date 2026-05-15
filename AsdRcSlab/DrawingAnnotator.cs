@@ -22,6 +22,7 @@ namespace AsdRcSlab
     {
         public const string LayerPhText  = "AP rebar top";
         public const string LayerPhHatch = "AP-Hatch";
+        public const string LayerNotUsed = "AP-NOTUSED";
 
         // Default text style name used in Speedeck drawings
         private const string DefaultTextStyle = "WYG_0MS";
@@ -187,6 +188,17 @@ namespace AsdRcSlab
                 result.PhLabelsUpdated = AnnotatePhDetailLabels(tr, btr, phLogSb);
                 result.Log += phLogSb.ToString();
 
+                // Oznacz krzyżem detale PH które nie mają żadnej pali w SessionData
+                try
+                {
+                    result.UnusedMarked = MarkUnusedDetails(piles, tr, btr, db);
+                    result.Log += $"Oznaczono niewykorzystane detale: {result.UnusedMarked}\n";
+                }
+                catch (System.Exception ex)
+                {
+                    result.Log += $"Błąd oznaczania niewykorzystanych: {ex.Message}\n";
+                }
+
                 tr.Commit();
             }
 
@@ -220,7 +232,8 @@ namespace AsdRcSlab
                     var ent = tr.GetObject(id, OpenMode.ForRead) as Entity;
                     if (ent == null) continue;
                     if (string.Equals(ent.Layer, LayerPhText,  StringComparison.OrdinalIgnoreCase) ||
-                        string.Equals(ent.Layer, LayerPhHatch, StringComparison.OrdinalIgnoreCase))
+                        string.Equals(ent.Layer, LayerPhHatch, StringComparison.OrdinalIgnoreCase) ||
+                        string.Equals(ent.Layer, LayerNotUsed, StringComparison.OrdinalIgnoreCase))
                     {
                         toDelete.Add(id);
                     }
@@ -297,6 +310,92 @@ namespace AsdRcSlab
             log.AppendLine($"AnnotatePhDetailLabels: zaktualizowano {updatedCount}, pominięto " +
                            $"{skippedNoPh} (brak PH w treści) + {skippedNoData} (brak pali dla danego PH).");
             return updatedCount;
+        }
+
+        // Skanuje szablony AP-TEXT, znajduje te z PH które ma 0 pali,
+        // rysuje krzyż "X" przez najbliższy Circle. Wywoływana w tej samej
+        // transakcji co Annotate — btr musi być już ForWrite.
+        private static int MarkUnusedDetails(
+            List<PileData> piles,
+            Transaction tr,
+            BlockTableRecord btr,
+            Database db)
+        {
+            int markedCount = 0;
+
+            int CountFor(string ph) => piles.Count(p =>
+                string.Equals(p.PhAction, ph, StringComparison.OrdinalIgnoreCase));
+
+            var unusedPhs = new List<string>();
+            for (int n = 1; n <= 9; n++)
+                if (CountFor("PH" + n) == 0) unusedPhs.Add("PH" + n);
+            if (CountFor("PH3-RE") == 0) unusedPhs.Add("PH3-RE");
+
+            if (unusedPhs.Count == 0) return 0;
+
+            EnsureLayer(tr, db, LayerNotUsed, 1); // czerwony
+
+            var templates = new List<(string phKey, Point3d pos)>();
+            var circles   = new List<(ObjectId id, Point3d center, double radius)>();
+
+            foreach (ObjectId id in btr)
+            {
+                try
+                {
+                    var ent = tr.GetObject(id, OpenMode.ForRead);
+                    if (ent is MText mt &&
+                        string.Equals(mt.Layer, "AP-TEXT", StringComparison.OrdinalIgnoreCase))
+                    {
+                        string clean = Regex.Replace(mt.Contents ?? "", @"\\[A-Za-z][^;]*;", "");
+                        foreach (var ph in unusedPhs)
+                        {
+                            if (clean.IndexOf(ph, StringComparison.OrdinalIgnoreCase) >= 0)
+                            {
+                                templates.Add((ph, mt.Location));
+                                break;
+                            }
+                        }
+                    }
+                    else if (ent is Circle c)
+                    {
+                        circles.Add((c.ObjectId, c.Center, c.Radius));
+                    }
+                }
+                catch { /* locked or proxy entities */ }
+            }
+
+            if (templates.Count == 0 || circles.Count == 0) return 0;
+
+            foreach (var (phKey, mtPos) in templates)
+            {
+                var nearest = circles
+                    .OrderBy(c => (c.center - mtPos).Length)
+                    .FirstOrDefault();
+                if (nearest.id.IsNull) continue;
+
+                double r  = nearest.radius;
+                double cx = nearest.center.X;
+                double cy = nearest.center.Y;
+                double rd = r * 0.707; // r/sqrt(2) — punkty na okręgu pod 45°
+
+                var line1 = new Line(
+                    new Point3d(cx - rd, cy + rd, 0),
+                    new Point3d(cx + rd, cy - rd, 0));
+                line1.Layer = LayerNotUsed;
+                btr.AppendEntity(line1);
+                tr.AddNewlyCreatedDBObject(line1, true);
+
+                var line2 = new Line(
+                    new Point3d(cx - rd, cy - rd, 0),
+                    new Point3d(cx + rd, cy + rd, 0));
+                line2.Layer = LayerNotUsed;
+                btr.AppendEntity(line2);
+                tr.AddNewlyCreatedDBObject(line2, true);
+
+                markedCount++;
+            }
+
+            return markedCount;
         }
 
         private static int ExtractFirstNumber(string s)
@@ -460,6 +559,8 @@ namespace AsdRcSlab
             sb.AppendLine($"Podpisano: {r.Annotated.Count} | Pominięto NO ACTION: {r.Skipped.Count} | Nie znaleziono: {r.NotFound.Count}");
             if (r.NotFound.Count > 0)
                 sb.AppendLine($"Nie znaleziono: {string.Join(", ", r.NotFound)}");
+            if (r.UnusedMarked > 0)
+                sb.AppendLine($"Nieużywanych detali (krzyż): {r.UnusedMarked}");
             return sb.ToString();
         }
     }
@@ -474,5 +575,6 @@ namespace AsdRcSlab
         public string       Log              { get; set; } = "";
         public bool         WrongDrawing     { get; set; }
         public int          PhLabelsUpdated  { get; set; }
+        public int          UnusedMarked     { get; set; }
     }
 }
