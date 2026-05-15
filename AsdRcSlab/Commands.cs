@@ -212,35 +212,6 @@ namespace AsdRcSlab
                     plotNumberFromGa = p;
             }
 
-            // 5b. Auto-wykryj TITLE_3 z Model space + viewportów RC
-            Dictionary<string, string> autoTitle3Map;
-            try
-            {
-                autoTitle3Map = ExtractAutoTitle3(db);
-            }
-            catch (System.Exception ex)
-            {
-                ed.WriteMessage($"\nGAI: nie udało się auto-wykryć TITLE_3: {ex.Message}");
-                autoTitle3Map = new Dictionary<string, string>();
-            }
-
-            // 5c. SCALE — auto z viewportów per layout
-            Dictionary<string, string> autoScalesMap;
-            try
-            {
-                autoScalesMap = ExtractLayoutScales(db);
-            }
-            catch (System.Exception ex)
-            {
-                ed.WriteMessage($"\nGAI: nie udało się wykryć skali viewportów: {ex.Message}");
-                autoScalesMap = new Dictionary<string, string>();
-            }
-
-            // 5d. DATE — aktualny miesiąc + rok
-            string nowDate = DateTime.Now.ToString(
-                "MMM yyyy",
-                System.Globalization.CultureInfo.InvariantCulture).ToUpper();
-
             // 6. Preview + confirm
             var sb = new StringBuilder();
             sb.AppendLine("Skopiować poniższe wartości do RC?");
@@ -289,42 +260,6 @@ namespace AsdRcSlab
                 }
             }
             sb.AppendLine();
-            sb.AppendLine("TITLE_3 (auto-wykrycie z Model space + viewporty):");
-            if (autoTitle3Map == null || autoTitle3Map.Count == 0)
-            {
-                sb.AppendLine("  (brak — automat nic nie wykrył)");
-            }
-            else
-            {
-                var sorted = autoTitle3Map.OrderBy(kv => kv.Key, StringComparer.OrdinalIgnoreCase).ToList();
-                foreach (var kv in sorted)
-                {
-                    string val = string.IsNullOrEmpty(kv.Value)
-                        ? "(brak wykrycia — zostawiam istniejący)"
-                        : "\"" + kv.Value + "\"";
-                    sb.AppendLine($"  {kv.Key} → {val}");
-                }
-            }
-            sb.AppendLine();
-            sb.AppendLine("SCALE (auto z viewportów):");
-            if (autoScalesMap == null || autoScalesMap.Count == 0)
-            {
-                sb.AppendLine("  (brak)");
-            }
-            else
-            {
-                foreach (var kv in autoScalesMap.OrderBy(k => k.Key, StringComparer.OrdinalIgnoreCase))
-                {
-                    string val = string.IsNullOrEmpty(kv.Value) ? "(brak viewportów)" : "\"" + kv.Value + "\"";
-                    sb.AppendLine($"  {kv.Key} → {val}");
-                }
-            }
-            sb.AppendLine();
-            sb.AppendLine($"DATE: {nowDate}");
-            sb.AppendLine();
-            sb.AppendLine("LAYOUT RENAME (po nadpisaniu DRAWING_NUMBER):");
-            sb.AppendLine("  (nowe nazwy = suffix po '-' + 'C1', np. RC030C1)");
-            sb.AppendLine();
             sb.AppendLine("SLAB NOTES (wartości liczbowe):");
             sb.AppendLine($"  SLAB AREA       : {(gaSlabValues.TryGetValue(KeySlabArea,       out var sa)  ? sa  : "(brak)")} m²");
             sb.AppendLine($"  SLAB PERIMETER  : {(gaSlabValues.TryGetValue(KeySlabPerimeter,  out var spe) ? spe : "(brak)")} m");
@@ -362,8 +297,7 @@ namespace AsdRcSlab
             {
                 updatedAttrLayouts = ApplyA1BLAttributesToActiveDb(
                     db, srcAttrs, GaiFieldsToCopy,
-                    gaTitlePrefix, gaDrawingPrefix, plotNumberFromGa, autoTitle3Map,
-                    autoScalesMap, nowDate);
+                    gaTitlePrefix, gaDrawingPrefix, plotNumberFromGa);
             }
             catch (System.Exception ex)
             {
@@ -376,17 +310,6 @@ namespace AsdRcSlab
                 MessageBox.Show(msg, "GAI", MessageBoxButton.OK, MessageBoxImage.Error);
                 ed.WriteMessage($"\nGAI EXCEPTION: {ex}");
                 return;
-            }
-
-            // 7a. Rename layoutów na podstawie nadpisanych DRAWING_NUMBER
-            int renamedLayouts = 0;
-            try
-            {
-                renamedLayouts = RenameLayoutsFromDrawingNumber(db);
-            }
-            catch (System.Exception ex)
-            {
-                ed.WriteMessage($"\nGAI: rename layoutów nie powiódł się: {ex.Message}");
             }
 
             // 7. Apply: SLAB NOTES wartości
@@ -405,12 +328,142 @@ namespace AsdRcSlab
 
             // 8. Log + komunikat
             ed.WriteMessage($"\nGAI: zaktualizowano {updatedAttrLayouts} layout(ów) z tabelką, " +
-                            $"{updatedSlabLayouts} layout(ów) z SLAB NOTES, " +
-                            $"renamowano {renamedLayouts} layout(ów).");
+                            $"{updatedSlabLayouts} layout(ów) z SLAB NOTES.");
             MessageBox.Show($"Zaktualizowano:\n• tabelka tytułowa: {updatedAttrLayouts} layout(ów)\n" +
-                            $"• SLAB NOTES: {updatedSlabLayouts} layout(ów)\n" +
-                            $"• Zmieniono nazwy: {renamedLayouts} layout(ów)",
+                            $"• SLAB NOTES: {updatedSlabLayouts} layout(ów)",
                             "GAI", MessageBoxButton.OK, MessageBoxImage.Information);
+        }
+
+        [CommandMethod("ASD-RCN")]
+        public void RcAutoNaming()
+        {
+            var doc = AcApp.DocumentManager.MdiActiveDocument;
+            if (doc == null) return;
+            var ed = doc.Editor;
+            var db = doc.Database;
+
+            // 1. Wyciąganie auto-wartości
+            Dictionary<string, string> autoTitle3Map;
+            Dictionary<string, string> autoScalesMap;
+
+            try
+            {
+                autoTitle3Map = ExtractAutoTitle3(db);
+            }
+            catch (System.Exception ex)
+            {
+                ed.WriteMessage($"\nRCN: błąd auto-detekcji TITLE_3: {ex.Message}");
+                autoTitle3Map = new Dictionary<string, string>();
+            }
+
+            try
+            {
+                autoScalesMap = ExtractLayoutScales(db);
+            }
+            catch (System.Exception ex)
+            {
+                ed.WriteMessage($"\nRCN: błąd auto-detekcji SCALE: {ex.Message}");
+                autoScalesMap = new Dictionary<string, string>();
+            }
+
+            string nowDate = DateTime.Now.ToString(
+                "MMM yyyy",
+                System.Globalization.CultureInfo.InvariantCulture).ToUpper();
+
+            // 2. Preview
+            var sb = new StringBuilder();
+            sb.AppendLine("ASD-RCN — automatyczne wypełnienie tabelek tytułowych RC.");
+            sb.AppendLine();
+
+            sb.AppendLine("TITLE_3 (auto z Model space + viewporty):");
+            if (autoTitle3Map.Count == 0)
+            {
+                sb.AppendLine("  (brak — nic nie wykryto)");
+            }
+            else
+            {
+                foreach (var kv in autoTitle3Map.OrderBy(k => k.Key, StringComparer.OrdinalIgnoreCase))
+                {
+                    string val = string.IsNullOrEmpty(kv.Value)
+                        ? "(brak wykrycia — zostawiam istniejący)"
+                        : "\"" + kv.Value + "\"";
+                    sb.AppendLine($"  {kv.Key} → {val}");
+                }
+            }
+
+            sb.AppendLine();
+            sb.AppendLine("SCALE (auto z viewportów):");
+            if (autoScalesMap.Count == 0)
+            {
+                sb.AppendLine("  (brak)");
+            }
+            else
+            {
+                foreach (var kv in autoScalesMap.OrderBy(k => k.Key, StringComparer.OrdinalIgnoreCase))
+                {
+                    string val = string.IsNullOrEmpty(kv.Value)
+                        ? "(brak viewportów)"
+                        : "\"" + kv.Value + "\"";
+                    sb.AppendLine($"  {kv.Key} → {val}");
+                }
+            }
+
+            sb.AppendLine();
+            sb.AppendLine($"DATE: {nowDate}");
+
+            sb.AppendLine();
+            sb.AppendLine("LAYOUT RENAME (po nadpisaniu — wg DRAWING_NUMBER suffix + 'C1'):");
+            sb.AppendLine("  (np. SL44QR001-RC030 → RC030C1)");
+
+            sb.AppendLine();
+            sb.AppendLine("Zastosować?");
+
+            var result = MessageBox.Show(
+                sb.ToString(), "ASD-RCN",
+                MessageBoxButton.YesNo, MessageBoxImage.Question);
+
+            if (result != MessageBoxResult.Yes)
+            {
+                ed.WriteMessage("\nRCN: anulowano.");
+                return;
+            }
+
+            // 3. Apply
+            int updatedLayouts = 0;
+            try
+            {
+                updatedLayouts = ApplyAutoFieldsToActiveDb(db, autoTitle3Map, autoScalesMap, nowDate);
+            }
+            catch (System.Exception ex)
+            {
+                string inner = ex.InnerException != null
+                    ? $"\nInnerException: {ex.InnerException.GetType().Name}: {ex.InnerException.Message}"
+                    : "";
+                string msg = $"Błąd podczas zapisu atrybutów:\n" +
+                             $"{ex.GetType().Name}: {ex.Message}{inner}\n\n" +
+                             $"Stack (top 5):\n{string.Join("\n", (ex.StackTrace ?? "").Split('\n').Take(5))}";
+                MessageBox.Show(msg, "RCN", MessageBoxButton.OK, MessageBoxImage.Error);
+                ed.WriteMessage($"\nRCN EXCEPTION: {ex}");
+                return;
+            }
+
+            // 4. Rename layoutów
+            int renamedLayouts = 0;
+            try
+            {
+                renamedLayouts = RenameLayoutsFromDrawingNumber(db);
+            }
+            catch (System.Exception ex)
+            {
+                ed.WriteMessage($"\nRCN: rename layoutów nie powiódł się: {ex.Message}");
+            }
+
+            // 5. Podsumowanie
+            string summary = $"ASD-RCN — gotowe.\n\n" +
+                             $"Zaktualizowano atrybuty w {updatedLayouts} layoutach.\n" +
+                             $"Zmieniono nazwy {renamedLayouts} layoutów.";
+            MessageBox.Show(summary, "ASD-RCN", MessageBoxButton.OK, MessageBoxImage.Information);
+            ed.WriteMessage($"\nRCN: zaktualizowano {updatedLayouts}, rename {renamedLayouts}.");
         }
 
         [CommandMethod("ASD-SET")]
@@ -1417,10 +1470,7 @@ namespace AsdRcSlab
             string[] tagsToCopy,
             string gaTitlePrefix,
             string gaDrawingPrefix,
-            int? plotNumberFromGa,
-            Dictionary<string, string> autoTitle3Map,
-            Dictionary<string, string> autoScalesMap,
-            string nowDate)
+            int? plotNumberFromGa)
         {
             int updatedLayouts = 0;
             var tagsSet = new HashSet<string>(tagsToCopy, StringComparer.OrdinalIgnoreCase);
@@ -1484,32 +1534,6 @@ namespace AsdRcSlab
                                 string suffix = BuildDrawingSuffix(currentLayoutPlot, currentLayoutIdx);
                                 newVal = gaDrawingPrefix + "-" + suffix;
                             }
-                            // TITLE_3: auto-wykrycie z viewportów
-                            else if (autoTitle3Map != null &&
-                                     string.Equals(att.Tag, "TITLE_3", StringComparison.OrdinalIgnoreCase))
-                            {
-                                if (autoTitle3Map.TryGetValue(layout.LayoutName, out string t3)
-                                    && !string.IsNullOrEmpty(t3))
-                                {
-                                    newVal = t3;
-                                }
-                            }
-                            // SCALE: auto z viewportów
-                            else if (autoScalesMap != null &&
-                                     string.Equals(att.Tag, "SCALE", StringComparison.OrdinalIgnoreCase))
-                            {
-                                if (autoScalesMap.TryGetValue(layout.LayoutName, out string sc)
-                                    && !string.IsNullOrEmpty(sc))
-                                {
-                                    newVal = sc;
-                                }
-                            }
-                            // DATE: aktualny miesiąc + rok
-                            else if (!string.IsNullOrEmpty(nowDate) &&
-                                     string.Equals(att.Tag, "DATE", StringComparison.OrdinalIgnoreCase))
-                            {
-                                newVal = nowDate;
-                            }
                             // Standardowa obsługa CLIENT_* / PROJ_*
                             else if (tagsSet.Contains(att.Tag))
                             {
@@ -1529,6 +1553,82 @@ namespace AsdRcSlab
                 }
                 tr.Commit();
             }
+            return updatedLayouts;
+        }
+
+        private static int ApplyAutoFieldsToActiveDb(
+            Database db,
+            Dictionary<string, string> autoTitle3Map,
+            Dictionary<string, string> autoScalesMap,
+            string nowDate)
+        {
+            int updatedLayouts = 0;
+
+            using (var tr = db.TransactionManager.StartTransaction())
+            {
+                var layoutDict = (DBDictionary)tr.GetObject(db.LayoutDictionaryId, OpenMode.ForRead);
+                foreach (DBDictionaryEntry entry in layoutDict)
+                {
+                    var layout = tr.GetObject(entry.Value, OpenMode.ForRead) as Layout;
+                    if (layout == null) continue;
+                    if (string.Equals(layout.LayoutName, "Model", StringComparison.OrdinalIgnoreCase))
+                        continue;
+
+                    var btr = (BlockTableRecord)tr.GetObject(layout.BlockTableRecordId, OpenMode.ForRead);
+                    bool layoutChanged = false;
+
+                    foreach (ObjectId id in btr)
+                    {
+                        var br = tr.GetObject(id, OpenMode.ForRead) as BlockReference;
+                        if (br == null) continue;
+                        if (!string.Equals(br.Name, TitleBlockName, StringComparison.OrdinalIgnoreCase))
+                            continue;
+
+                        foreach (ObjectId attId in br.AttributeCollection)
+                        {
+                            var att = tr.GetObject(attId, OpenMode.ForRead) as AttributeReference;
+                            if (att == null) continue;
+
+                            string newVal = null;
+
+                            if (autoTitle3Map != null &&
+                                string.Equals(att.Tag, "TITLE_3", StringComparison.OrdinalIgnoreCase))
+                            {
+                                if (autoTitle3Map.TryGetValue(layout.LayoutName, out string t3)
+                                    && !string.IsNullOrEmpty(t3))
+                                {
+                                    newVal = t3;
+                                }
+                            }
+                            else if (autoScalesMap != null &&
+                                     string.Equals(att.Tag, "SCALE", StringComparison.OrdinalIgnoreCase))
+                            {
+                                if (autoScalesMap.TryGetValue(layout.LayoutName, out string sc)
+                                    && !string.IsNullOrEmpty(sc))
+                                {
+                                    newVal = sc;
+                                }
+                            }
+                            else if (!string.IsNullOrEmpty(nowDate) &&
+                                     string.Equals(att.Tag, "DATE", StringComparison.OrdinalIgnoreCase))
+                            {
+                                newVal = nowDate;
+                            }
+
+                            if (newVal != null && !string.Equals(att.TextString, newVal, StringComparison.Ordinal))
+                            {
+                                att.UpgradeOpen();
+                                att.TextString = newVal;
+                                layoutChanged = true;
+                            }
+                        }
+                    }
+
+                    if (layoutChanged) updatedLayouts++;
+                }
+                tr.Commit();
+            }
+
             return updatedLayouts;
         }
 
