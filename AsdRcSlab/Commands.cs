@@ -852,7 +852,35 @@ namespace AsdRcSlab
 
                 doc.Editor.WriteMessage($"\nPAA: Przypisano PH dla {SessionData.Piles.Count} pali.\n");
 
-                // Pokaż wyniki i zapytaj czy podpisać rysunek
+                // Annotuj rysunek (idempotent — cleanup z p31 usuwa stare encje)
+                var res = DrawingAnnotator.Annotate(SessionData.Piles);
+                doc.Editor.WriteMessage($"\nPAA: {res.Log.Replace("\n", " ")}");
+
+                if (res.WrongDrawing)
+                {
+                    System.Windows.MessageBox.Show(
+                        "Aktywny rysunek nie wygląda jak RC SLAB\n" +
+                        "(brak nagłówka 'REINFORCEMENT DETAILS OF SPEEDECK').\n\n" +
+                        "Wczytaj właściwy rysunek RC i uruchom ASD-PAA ponownie.",
+                        "ASD-PAA",
+                        System.Windows.MessageBoxButton.OK,
+                        System.Windows.MessageBoxImage.Warning);
+                    return;
+                }
+
+                string totalsLine = PhAssignResultsDialog.BuildPhTotalsLine(SessionData.Piles);
+                string summary =
+                    $"ASD-PAA: zaanotowano rysunek.\n\n" +
+                    $"Podpisano pali: {res.Annotated.Count}\n" +
+                    $"Pominięto (NO ACTION): {res.Skipped.Count}\n" +
+                    $"Nie znaleziono: {res.NotFound.Count}\n" +
+                    $"Szablony PH (AP-TEXT): {res.PhLabelsUpdated}\n\n" +
+                    totalsLine;
+                System.Windows.MessageBox.Show(summary, "ASD-PAA",
+                    System.Windows.MessageBoxButton.OK,
+                    System.Windows.MessageBoxImage.Information);
+
+                // Otwórz dialog z wynikami (pure-view, bez buttona Zaktualizuj)
                 var dlg = new PhAssignResultsDialog(SessionData.Piles);
                 AcApp.ShowModalWindow(AcApp.MainWindow.Handle, dlg, false);
 

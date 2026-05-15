@@ -82,9 +82,6 @@
             <Button Content="Eksportuj do Excel" Width="130" Height="28" Margin="0,0,8,0"
                     Click="BtnExport_Click"
                     Background="#2E7D32" Foreground="White" BorderThickness="0"/>
-            <Button x:Name="BtnUpdateDrawing" Content="Zaktualizuj rysunek" Width="140" Height="28" Margin="0,0,8,0"
-                    Click="BtnUpdateDrawing_Click"
-                    Background="#1565C0" Foreground="White" BorderThickness="0"/>
             <Button Content="Zamknij" IsCancel="True" Width="80" Height="28"
                     Background="#757575" Foreground="White" BorderThickness="0"/>
         </StackPanel>
