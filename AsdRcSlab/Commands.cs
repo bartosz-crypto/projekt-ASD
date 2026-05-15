@@ -852,36 +852,8 @@ namespace AsdRcSlab
 
                 doc.Editor.WriteMessage($"\nPAA: Przypisano PH dla {SessionData.Piles.Count} pali.\n");
 
-                // Annotuj rysunek (idempotent — cleanup z p31 usuwa stare encje)
-                var res = DrawingAnnotator.Annotate(SessionData.Piles);
-                doc.Editor.WriteMessage($"\nPAA: {res.Log.Replace("\n", " ")}");
-
-                if (res.WrongDrawing)
-                {
-                    System.Windows.MessageBox.Show(
-                        "Aktywny rysunek nie wygląda jak RC SLAB\n" +
-                        "(brak nagłówka 'REINFORCEMENT DETAILS OF SPEEDECK').\n\n" +
-                        "Wczytaj właściwy rysunek RC i uruchom ASD-PAA ponownie.",
-                        "ASD-PAA",
-                        System.Windows.MessageBoxButton.OK,
-                        System.Windows.MessageBoxImage.Warning);
-                    return;
-                }
-
-                string totalsLine = PhAssignResultsDialog.BuildPhTotalsLine(SessionData.Piles);
-                string summary =
-                    $"ASD-PAA: zaanotowano rysunek.\n\n" +
-                    $"Podpisano pali: {res.Annotated.Count}\n" +
-                    $"Pominięto (NO ACTION): {res.Skipped.Count}\n" +
-                    $"Nie znaleziono: {res.NotFound.Count}\n" +
-                    $"Szablony PH (AP-TEXT): {res.PhLabelsUpdated}\n\n" +
-                    totalsLine;
-                System.Windows.MessageBox.Show(summary, "ASD-PAA",
-                    System.Windows.MessageBoxButton.OK,
-                    System.Windows.MessageBoxImage.Information);
-
-                // Otwórz dialog z wynikami (pure-view, bez buttona Zaktualizuj)
-                var dlg = new PhAssignResultsDialog(SessionData.Piles);
+                // Otwórz dialog z buttonem "Zaktualizuj rysunek" (user decyduje kiedy anotować)
+                var dlg = new PhAssignResultsDialog(SessionData.Piles, showUpdateButton: true);
                 AcApp.ShowModalWindow(AcApp.MainWindow.Handle, dlg, false);
 
             }
@@ -905,8 +877,7 @@ namespace AsdRcSlab
                 return;
             }
 
-            // Otwiera dialog z Assign PH (zawiera przycisk Eksportuj do Excel)
-            var dlg = new PhAssignResultsDialog(SessionData.Piles);
+            var dlg = new PhAssignResultsDialog(SessionData.Piles, showUpdateButton: false);
             AcApp.ShowModalWindow(AcApp.MainWindow.Handle, dlg, false);
         }
 

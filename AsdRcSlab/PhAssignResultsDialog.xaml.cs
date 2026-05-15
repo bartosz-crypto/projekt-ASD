@@ -22,10 +22,13 @@ namespace AsdRcSlab
     {
         private readonly List<PileData> _piles;
 
-        public PhAssignResultsDialog(List<PileData> piles)
+        public PhAssignResultsDialog(List<PileData> piles, bool showUpdateButton = false)
         {
             InitializeComponent();
             _piles = piles;
+            BtnUpdateDrawing.Visibility = showUpdateButton
+                ? Visibility.Visible
+                : Visibility.Collapsed;
             Populate();
         }
 
@@ -94,6 +97,43 @@ namespace AsdRcSlab
             else h16 = $"H16: {sumH16a}×14+{sumH16b}×28 = {sumH16a * 14 + sumH16b * 28}";
 
             return $"TOTAL:  {h12}  |  {h16}";
+        }
+
+        private void BtnUpdateDrawing_Click(object sender, RoutedEventArgs e)
+        {
+            try
+            {
+                var res = DrawingAnnotator.Annotate(SessionData.Piles);
+
+                if (res.WrongDrawing)
+                {
+                    MessageBox.Show(
+                        "Aktywny rysunek nie wygląda jak RC SLAB " +
+                        "(brak nagłówka 'REINFORCEMENT DETAILS OF SPEEDECK').\n\n" +
+                        "Otwórz właściwy rysunek RC i spróbuj ponownie.",
+                        "Zaktualizuj rysunek",
+                        MessageBoxButton.OK, MessageBoxImage.Warning);
+                    return;
+                }
+
+                string totalsLine = BuildPhTotalsLine(SessionData.Piles);
+                string msg =
+                    $"Zaktualizowano rysunek.\n\n" +
+                    $"Podpisano pali: {res.Annotated.Count}\n" +
+                    $"Pominięto (NO ACTION): {res.Skipped.Count}\n" +
+                    $"Nie znaleziono: {res.NotFound.Count}\n" +
+                    $"Szablony PH (AP-TEXT): {res.PhLabelsUpdated}\n\n" +
+                    totalsLine;
+                MessageBox.Show(msg, "Zaktualizuj rysunek",
+                    MessageBoxButton.OK, MessageBoxImage.Information);
+            }
+            catch (Exception ex)
+            {
+                MessageBox.Show(
+                    $"Błąd podczas aktualizacji rysunku:\n{ex.Message}",
+                    "Zaktualizuj rysunek",
+                    MessageBoxButton.OK, MessageBoxImage.Error);
+            }
         }
 
         private void BtnExport_Click(object sender, RoutedEventArgs e)
