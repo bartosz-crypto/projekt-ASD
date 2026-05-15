@@ -260,9 +260,8 @@ namespace AsdRcSlab
             var locRegex  = new Regex(@"\(\s*\d*[^)]*No[^)]*LOCATIONS?[^)]*\)", RegexOptions.IgnoreCase);
             var applRegex = new Regex(@"APPLICABLE FOR PILES?[^}]*");
 
-            int updatedCount  = 0;
-            int skippedNoPh   = 0;
-            int skippedNoData = 0;
+            int updatedCount = 0;
+            int skippedNoPh  = 0;
 
             foreach (ObjectId id in btr)
             {
@@ -288,27 +287,31 @@ namespace AsdRcSlab
                     .ThenBy(pid => pid, StringComparer.OrdinalIgnoreCase)
                     .ToList();
 
-                if (piles.Count == 0) { skippedNoData++; continue; }
-
+                // Zawsze updateuj — również gdy brak pali (0No LOCATIONS / APPLICABLE FOR PILE/S —)
                 string locReplacement = piles.Count == 1
-                    ? $"({piles.Count}No LOCATION)"
+                    ? "(1No LOCATION)"
                     : $"({piles.Count}No LOCATIONS)";
                 contents = locRegex.Replace(contents, locReplacement);
 
                 string pileListJoined = string.Join(", ", piles);
-                string applReplacement = piles.Count == 1
-                    ? $"APPLICABLE FOR PILE {pileListJoined}"
-                    : $"APPLICABLE FOR PILES {pileListJoined}";
+                string applReplacement;
+                if (piles.Count == 0)
+                    applReplacement = "APPLICABLE FOR PILE/S —"; // em-dash, brak pali
+                else if (piles.Count == 1)
+                    applReplacement = $"APPLICABLE FOR PILE {pileListJoined}";
+                else
+                    applReplacement = $"APPLICABLE FOR PILES {pileListJoined}";
                 contents = applRegex.Replace(contents, applReplacement);
 
                 ent.Contents = contents;
 
-                log.AppendLine($"  AP-TEXT [{phKey}]: zaktualizowano ({piles.Count} pali: {pileListJoined})");
+                string logSuffix = piles.Count > 0 ? $": {pileListJoined}" : "";
+                log.AppendLine($"  AP-TEXT [{phKey}]: zaktualizowano ({piles.Count} pali{logSuffix})");
                 updatedCount++;
             }
 
             log.AppendLine($"AnnotatePhDetailLabels: zaktualizowano {updatedCount}, pominięto " +
-                           $"{skippedNoPh} (brak PH w treści) + {skippedNoData} (brak pali dla danego PH).");
+                           $"{skippedNoPh} (brak PH w treści).");
             return updatedCount;
         }
 
