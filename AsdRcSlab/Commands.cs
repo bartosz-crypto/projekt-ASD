@@ -46,6 +46,11 @@ namespace AsdRcSlab
             @"(CONCRETE\s+VOLUME\s*=\s*)([\d.]+)(\s*m(?:\\[A-Za-z][^;]*;|\s)*)([^\\]*)",
             RegexOptions.IgnoreCase | RegexOptions.Singleline);
 
+        // Dedykowany regex do PODMIANY VOLUME w RC: G1=prefix, G2=number, G3=m³ codes, G4=stary tail (lazy do \P/numeru/końca)
+        private static readonly Regex ConcreteVolumeReplaceRx = new Regex(
+            @"(CONCRETE\s+VOLUME\s*=\s*)([\d.]+)(\s*m(?:\\[A-Za-z][^;]*;|\s)*)(.*?)(?=\\P|\d+\.\s|\z)",
+            RegexOptions.IgnoreCase | RegexOptions.Singleline);
+
         // Podmienia HYSTOOLS DK90/DK165 (w tym samym MText co SLAB NOTES)
         private static readonly Regex HystoolsRx = new Regex(
             @"HYSTOOLS\s+DK(?:90|165)",
@@ -1467,13 +1472,12 @@ namespace AsdRcSlab
                         if (values.TryGetValue(KeySlabThickness, out var vTh) && !string.IsNullOrEmpty(vTh))
                             newContents = SlabThicknessReplaceRx.Replace(newContents, "${1}" + vTh + "${3}");
 
-                        // CONCRETE VOLUME — nadpisuje wartość liczbową i tail
+                        // CONCRETE VOLUME — nadpisuje liczbę i tail; MatchEvaluator eliminuje problemy z $ w replace string
                         if (values.TryGetValue(KeyConcreteVolume, out var vVol) && !string.IsNullOrEmpty(vVol))
                         {
                             string newTail = values.TryGetValue(KeyConcreteVolumeTail, out var t) ? t : "";
-                            string newTailEscaped = newTail.Replace("$", "$$");
-                            newContents = ConcreteVolumeExtractRx.Replace(newContents,
-                                              "${1}" + vVol + "${3}" + newTailEscaped);
+                            newContents = ConcreteVolumeReplaceRx.Replace(newContents, m =>
+                                m.Groups[1].Value + vVol + m.Groups[3].Value + newTail);
                         }
 
                         // CONCRETE TO BE DESIGNATED block — substring-based (unika interpretacji $ w gaBlock)
