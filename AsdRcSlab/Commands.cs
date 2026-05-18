@@ -58,6 +58,10 @@ namespace AsdRcSlab
         private static readonly Regex TitlePlotNumberRx =
             new Regex(@"\bPLOT\s+(\d+)", RegexOptions.IgnoreCase);
 
+        // Wyciąga numer z suffix GA (np. "GA100" → 100)
+        private static readonly Regex GaSuffixNumberRx =
+            new Regex(@"^GA(\d+)$", RegexOptions.IgnoreCase);
+
         // Auto-detekcja TITLE_3
         private static readonly Regex MainLayerRx = new Regex(
             @"REINFORCEMENT\s+DETAILS\s+.*?\b(BOTTOM|TOP)\s+LAYER",
@@ -185,8 +189,9 @@ namespace AsdRcSlab
                 if (dashIdx > 0) gaDrawingPrefix = gaDrawNo.Substring(0, dashIdx);
             }
 
-            // 4. Otwórz GA drugi raz dla SLAB values (MText na PCN-Text)
+            // 4. Otwórz GA drugi raz dla SLAB values (MText na PCN-Text) + first GA number
             var gaSlabValues = new Dictionary<string, string>();
+            int? firstGaNumber = null;
             try
             {
                 using (var sideDb = new Database(false, true))
@@ -196,6 +201,15 @@ namespace AsdRcSlab
                     else       sideDb.ReadDwgFile(path, System.IO.FileShare.Read, true, "");
 
                     gaSlabValues = ExtractSlabValuesFromDb(sideDb, GaSlabNotesLayer);
+
+                    try
+                    {
+                        firstGaNumber = ExtractFirstGaDrawingNumber(sideDb);
+                    }
+                    catch (System.Exception ex)
+                    {
+                        ed.WriteMessage($"\nGAI: nie udało się odczytać first GA number: {ex.Message}");
+                    }
                 }
             }
             catch (System.Exception ex)
@@ -235,10 +249,14 @@ namespace AsdRcSlab
             }
             else
             {
-                string plotStr = plotNumberFromGa.HasValue
-                    ? $"PLOT {plotNumberFromGa.Value} (z GA prefix)"
-                    : "brak PLOT N w GA prefix";
-                sb.AppendLine($"  Plot: {plotStr}");
+                string startInfo;
+                if (firstGaNumber.HasValue)
+                    startInfo = $"Start od GA: GA{firstGaNumber.Value} → RC{firstGaNumber.Value}, RC{firstGaNumber.Value + 1}, ...";
+                else if (plotNumberFromGa.HasValue)
+                    startInfo = $"Plot {plotNumberFromGa.Value} (z TITLE_1 prefix, fallback)";
+                else
+                    startInfo = "Brak GA number i plot, fallback RC001+";
+                sb.AppendLine($"  {startInfo}");
 
                 var rcLayoutNames = new List<string>();
                 using (var tr = db.TransactionManager.StartTransaction())
@@ -257,7 +275,7 @@ namespace AsdRcSlab
 
                 for (int i = 0; i < rcLayoutNames.Count; i++)
                 {
-                    string suffix = BuildDrawingSuffix(plotNumberFromGa, i);
+                    string suffix = BuildDrawingSuffix(plotNumberFromGa, i, firstGaNumber);
                     sb.AppendLine($"  {rcLayoutNames[i]} → {gaDrawingPrefix}-{suffix}");
                 }
             }
@@ -299,7 +317,7 @@ namespace AsdRcSlab
             {
                 updatedAttrLayouts = ApplyA1BLAttributesToActiveDb(
                     db, srcAttrs, GaiFieldsToCopy,
-                    gaTitlePrefix, gaDrawingPrefix, plotNumberFromGa);
+                    gaTitlePrefix, gaDrawingPrefix, plotNumberFromGa, firstGaNumber);
             }
             catch (System.Exception ex)
             {
@@ -1258,8 +1276,74 @@ namespace AsdRcSlab
             return renamed;
         }
 
-        private static string BuildDrawingSuffix(int? plotNumber, int layoutIdx0Based)
+        private static int? ExtractFirstGaDrawingNumber(Database gaDb)
         {
+            var layoutNames = new List<string>();
+            var drawingNumbers = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+
+            using (var tr = gaDb.TransactionManager.StartTransaction())
+            {
+                var layoutDict = (DBDictionary)tr.GetObject(gaDb.LayoutDictionaryId, OpenMode.ForRead);
+                foreach (DBDictionaryEntry entry in layoutDict)
+                {
+                    var layout = tr.GetObject(entry.Value, OpenMode.ForRead) as Layout;
+                    if (layout == null) continue;
+                    if (string.Equals(layout.LayoutName, "Model", StringComparison.OrdinalIgnoreCase))
+                        continue;
+
+                    string drawingNo = null;
+                    var btr = (BlockTableRecord)tr.GetObject(layout.BlockTableRecordId, OpenMode.ForRead);
+                    foreach (ObjectId oid in btr)
+                    {
+                        var br = tr.GetObject(oid, OpenMode.ForRead) as BlockReference;
+                        if (br == null) continue;
+                        if (!string.Equals(br.Name, TitleBlockName, StringComparison.OrdinalIgnoreCase))
+                            continue;
+                        foreach (ObjectId aid in br.AttributeCollection)
+                        {
+                            var att = tr.GetObject(aid, OpenMode.ForRead) as AttributeReference;
+                            if (att == null) continue;
+                            if (string.Equals(att.Tag, "DRAWING_NUMBER", StringComparison.OrdinalIgnoreCase))
+                            {
+                                drawingNo = att.TextString;
+                                break;
+                            }
+                        }
+                        break;
+                    }
+
+                    if (!string.IsNullOrEmpty(drawingNo))
+                    {
+                        layoutNames.Add(layout.LayoutName);
+                        drawingNumbers[layout.LayoutName] = drawingNo;
+                    }
+                }
+                tr.Commit();
+            }
+
+            if (layoutNames.Count == 0) return null;
+
+            layoutNames.Sort(StringComparer.OrdinalIgnoreCase);
+            string firstDrawingNo = drawingNumbers[layoutNames[0]];
+
+            int dashIdx = firstDrawingNo.LastIndexOf('-');
+            if (dashIdx < 0 || dashIdx == firstDrawingNo.Length - 1) return null;
+            string suffix = firstDrawingNo.Substring(dashIdx + 1).Trim();
+
+            var m = GaSuffixNumberRx.Match(suffix);
+            if (!m.Success) return null;
+
+            if (int.TryParse(m.Groups[1].Value, out int num)) return num;
+            return null;
+        }
+
+        private static string BuildDrawingSuffix(int? plotNumber, int layoutIdx0Based, int? firstGaNumber = null)
+        {
+            if (firstGaNumber.HasValue)
+            {
+                int num = firstGaNumber.Value + layoutIdx0Based;
+                return "RC" + num.ToString();
+            }
             if (plotNumber.HasValue)
             {
                 int p = plotNumber.Value;
@@ -1461,7 +1545,8 @@ namespace AsdRcSlab
             string[] tagsToCopy,
             string gaTitlePrefix,
             string gaDrawingPrefix,
-            int? plotNumberFromGa)
+            int? plotNumberFromGa,
+            int? firstGaNumber = null)
         {
             int updatedLayouts = 0;
             var tagsSet = new HashSet<string>(tagsToCopy, StringComparer.OrdinalIgnoreCase);
@@ -1522,7 +1607,7 @@ namespace AsdRcSlab
                             else if (!string.IsNullOrEmpty(gaDrawingPrefix) &&
                                      string.Equals(att.Tag, "DRAWING_NUMBER", StringComparison.OrdinalIgnoreCase))
                             {
-                                string suffix = BuildDrawingSuffix(currentLayoutPlot, currentLayoutIdx);
+                                string suffix = BuildDrawingSuffix(currentLayoutPlot, currentLayoutIdx, firstGaNumber);
                                 newVal = gaDrawingPrefix + "-" + suffix;
                             }
                             // Standardowa obsługa CLIENT_* / PROJ_*
