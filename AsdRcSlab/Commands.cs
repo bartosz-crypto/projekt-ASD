@@ -39,9 +39,16 @@ namespace AsdRcSlab
         private static readonly Regex SlabPerimeterExtractRx = new Regex(@"SLAB\s+PERIMETER\s*=\s*([\d.]+)\s*m",  RegexOptions.IgnoreCase);
         private static readonly Regex SlabThicknessExtractRx = new Regex(@"SLAB\s+THICKNESS\s*=\s*([\d.]+)\s*mm", RegexOptions.IgnoreCase);
 
-        // CONCRETE VOLUME — g1=prefix, g2=number, g3=format codes (\H..\S3..\H..), g4=tail
+        // CONCRETE VOLUME — g1=prefix, g2=number, g3=all MText codes after m (N×\H + \S3^), g4=tail
+        // G3 uses (?:\\[A-Za-z][^;]*;|\s)* to consume any number of inline format codes and spaces,
+        // so G4 correctly captures tail like " PILE CAP INC." (no backslashes).
         private static readonly Regex ConcreteVolumeExtractRx = new Regex(
-            @"(CONCRETE\s+VOLUME\s*=\s*)([\d.]+)(\s*m\\H[^;]*;\\S3\^\s*;\\H[^;]*;)([^\\]*)",
+            @"(CONCRETE\s+VOLUME\s*=\s*)([\d.]+)(\s*m(?:\\[A-Za-z][^;]*;|\s)*)([^\\]*)",
+            RegexOptions.IgnoreCase | RegexOptions.Singleline);
+
+        // Podmienia HYSTOOLS DK90/DK165 (w tym samym MText co SLAB NOTES)
+        private static readonly Regex HystoolsRx = new Regex(
+            @"HYSTOOLS\s+DK(?:90|165)",
             RegexOptions.IgnoreCase);
 
         // Slab replace: group 1 = "X = ", group 2 = number, group 3 = " m"/" mm"
@@ -289,6 +296,19 @@ namespace AsdRcSlab
             sb.AppendLine("CONCRETE VOLUME tail (po wartości):");
             string volTail = gaSlabValues.TryGetValue(KeyConcreteVolumeTail, out var vt) ? vt : "";
             sb.AppendLine($"  {(string.IsNullOrWhiteSpace(volTail) ? "(pusty — RC straci ewentualne 'inc. PILE CAP')" : volTail)}");
+            sb.AppendLine();
+            if (gaSlabValues.TryGetValue(KeySlabThickness, out var sthHys) &&
+                int.TryParse(sthHys, out int thHys))
+            {
+                string targetDk = thHys == 225 ? "DK90"
+                               : thHys == 300 ? "DK165"
+                               : "—";
+                sb.AppendLine($"  HYSTOOLS (z thickness {thHys}mm): → {targetDk}");
+            }
+            else
+            {
+                sb.AppendLine("  HYSTOOLS: brak wykrycia thickness — bez podmiany");
+            }
             sb.AppendLine();
             sb.AppendLine("CONCRETE TO BE DESIGNATED block:");
             if (gaSlabValues.TryGetValue(KeyConcreteDesignated, out var dBlock) && !string.IsNullOrEmpty(dBlock))
@@ -1466,6 +1486,17 @@ namespace AsdRcSlab
                                             + gaBlock
                                             + newContents.Substring(rcMatch.Index + rcMatch.Length);
                             }
+                        }
+
+                        // HYSTOOLS — podmień DK wariant wg thickness (225→DK90, 300→DK165)
+                        if (values.TryGetValue(KeySlabThickness, out var thStr) &&
+                            int.TryParse(thStr, out int thMm))
+                        {
+                            string targetDk = thMm == 225 ? "DK90"
+                                           : thMm == 300 ? "DK165"
+                                           : null;
+                            if (targetDk != null)
+                                newContents = HystoolsRx.Replace(newContents, "HYSTOOLS " + targetDk);
                         }
 
                         if (!string.Equals(newContents, contents, StringComparison.Ordinal))
