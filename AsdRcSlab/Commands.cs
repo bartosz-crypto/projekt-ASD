@@ -25,7 +25,6 @@ namespace AsdRcSlab
         private const string KeySlabPerimeter        = "SLAB_PERIMETER";
         private const string KeySlabThickness        = "SLAB_THICKNESS";
         private const string KeyConcreteVolume       = "CONCRETE_VOLUME";
-        private const string KeyConcreteVolumeTail   = "CONCRETE_VOLUME_TAIL";
         private const string KeyConcreteDesignated   = "CONCRETE_DESIGNATED_BLOCK";
 
         private static readonly string[] GaiFieldsToCopy = new[]
@@ -40,17 +39,15 @@ namespace AsdRcSlab
         private static readonly Regex SlabPerimeterExtractRx = new Regex(@"SLAB\s+PERIMETER\s*=\s*([\d.]+)\s*m",  RegexOptions.IgnoreCase);
         private static readonly Regex SlabThicknessExtractRx = new Regex(@"SLAB\s+THICKNESS\s*=\s*([\d.]+)\s*mm", RegexOptions.IgnoreCase);
 
-        // CONCRETE VOLUME — g1=prefix, g2=number, g3=all MText codes after m (N×\H + \S3^), g4=tail
-        // G3 uses (?:\\[A-Za-z][^;]*;|\s)* to consume any number of inline format codes and spaces,
-        // so G4 correctly captures tail like " PILE CAP INC." (no backslashes).
+        // CONCRETE VOLUME extract — g1=prefix, g2=number only (tail ignorowany)
         private static readonly Regex ConcreteVolumeExtractRx = new Regex(
-            @"(CONCRETE\s+VOLUME\s*=\s*)([\d.]+)(\s*m(?:\\[A-Za-z][^;]*;|\s)*)([^\\]*)",
-            RegexOptions.IgnoreCase | RegexOptions.Singleline);
+            @"(CONCRETE\s+VOLUME\s*=\s*)([\d.]+)",
+            RegexOptions.IgnoreCase);
 
-        // Dedykowany regex do PODMIANY VOLUME w RC: G1=prefix, G2=number, G3=m³ codes, G4=stary tail (lazy do \P/numeru/końca)
+        // CONCRETE VOLUME replace w RC: G1=prefix, G2=m³ codes z RC (zachowane); stary tail wycinany
         private static readonly Regex ConcreteVolumeReplaceRx = new Regex(
-            @"(CONCRETE\s+VOLUME\s*=\s*)([\d.]+)(\s*m(?:\\[A-Za-z][^;]*;|\s)*)(.*?)(?=\\P|\d+\.\s|\z)",
-            RegexOptions.IgnoreCase | RegexOptions.Singleline);
+            @"(CONCRETE\s+VOLUME\s*=\s*)[\d.]+(\s*m(?:\\[A-Za-z][^;]*;|\s)*[³3]?(?:\\[A-Za-z][^;]*;|\s)*)[^\\]*?(?=\\P|\d+\.\s|\z)",
+            RegexOptions.IgnoreCase);
 
         // Podmienia HYSTOOLS DK90/DK165 (w tym samym MText co SLAB NOTES)
         private static readonly Regex HystoolsRx = new Regex(
@@ -297,11 +294,7 @@ namespace AsdRcSlab
             sb.AppendLine($"  SLAB AREA       : {(gaSlabValues.TryGetValue(KeySlabArea,       out var sa)  ? sa  : "(brak)")} m²");
             sb.AppendLine($"  SLAB PERIMETER  : {(gaSlabValues.TryGetValue(KeySlabPerimeter,  out var spe) ? spe : "(brak)")} m");
             sb.AppendLine($"  SLAB THICKNESS  : {(gaSlabValues.TryGetValue(KeySlabThickness,  out var sth) ? sth : "(brak)")} mm");
-            sb.AppendLine($"  CONCRETE VOLUME : {(gaSlabValues.TryGetValue(KeyConcreteVolume, out var svo) ? svo : "(brak)")} m³");
-            sb.AppendLine();
-            sb.AppendLine("CONCRETE VOLUME tail (po wartości):");
-            string volTail = gaSlabValues.TryGetValue(KeyConcreteVolumeTail, out var vt) ? vt : "";
-            sb.AppendLine($"  {(string.IsNullOrWhiteSpace(volTail) ? "(pusty — RC straci ewentualne 'inc. PILE CAP')" : volTail)}");
+            sb.AppendLine($"  CONCRETE VOLUME = {(gaSlabValues.TryGetValue(KeyConcreteVolume, out var svo) ? svo : "(brak)")}m³");
             sb.AppendLine();
             if (gaSlabValues.TryGetValue(KeySlabThickness, out var sthHys) &&
                 int.TryParse(sthHys, out int thHys))
@@ -1416,10 +1409,7 @@ namespace AsdRcSlab
 
                         var vMatch = ConcreteVolumeExtractRx.Match(contents);
                         if (vMatch.Success)
-                        {
-                            result[KeyConcreteVolume]     = vMatch.Groups[2].Value;
-                            result[KeyConcreteVolumeTail] = vMatch.Groups[4].Value;
-                        }
+                            result[KeyConcreteVolume] = vMatch.Groups[2].Value;
 
                         var dMatch = ConcreteDesignatedBlockRx.Match(contents);
                         if (dMatch.Success)
@@ -1473,12 +1463,11 @@ namespace AsdRcSlab
                         if (values.TryGetValue(KeySlabThickness, out var vTh) && !string.IsNullOrEmpty(vTh))
                             newContents = SlabThicknessReplaceRx.Replace(newContents, "${1}" + vTh + "${3}");
 
-                        // CONCRETE VOLUME — nadpisuje liczbę i tail; MatchEvaluator eliminuje problemy z $ w replace string
+                        // CONCRETE VOLUME — podmień tylko liczbę; m³ codes z RC zachowane, tail wycinany
                         if (values.TryGetValue(KeyConcreteVolume, out var vVol) && !string.IsNullOrEmpty(vVol))
                         {
-                            string newTail = values.TryGetValue(KeyConcreteVolumeTail, out var t) ? t : "";
                             newContents = ConcreteVolumeReplaceRx.Replace(newContents, m =>
-                                m.Groups[1].Value + vVol + m.Groups[3].Value + newTail);
+                                m.Groups[1].Value + vVol + m.Groups[2].Value);
                         }
 
                         // CONCRETE TO BE DESIGNATED block — substring-based (unika interpretacji $ w gaBlock)
