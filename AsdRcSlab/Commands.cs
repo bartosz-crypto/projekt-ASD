@@ -31,7 +31,8 @@ namespace AsdRcSlab
         private static readonly string[] GaiFieldsToCopy = new[]
         {
             "CLIENT_1", "CLIENT_2", "CLIENT_3",
-            "PROJ_1",   "PROJ_2",   "PROJ_3"
+            "PROJ_1",   "PROJ_2",   "PROJ_3",
+            "APPROVED",
         };
 
         // Slab extract: group 1 = numeric value
