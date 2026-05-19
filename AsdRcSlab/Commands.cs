@@ -249,8 +249,17 @@ namespace AsdRcSlab
                 sb.AppendLine($"  {tag,-10}: {val}");
             }
             sb.AppendLine();
-            sb.AppendLine("TITLE PREFIX (przed REINFORCEMENT DETAILS):");
-            sb.AppendLine($"  {gaTitlePrefix ?? "(brak)"}");
+            sb.AppendLine("TITLE_1:");
+            if (string.IsNullOrEmpty(gaTitlePrefix))
+            {
+                sb.AppendLine("  GA prefix: (brak)");
+                sb.AppendLine("  → RC TITLE_1: usunięty prefix");
+            }
+            else
+            {
+                sb.AppendLine($"  GA prefix: \"{gaTitlePrefix}\"");
+                sb.AppendLine($"  → RC TITLE_1: \"{gaTitlePrefix} <reszta po prefix'ie>\"");
+            }
             sb.AppendLine();
             sb.AppendLine("DRAWING_NUMBER:");
             if (string.IsNullOrEmpty(gaDrawingPrefix))
@@ -972,10 +981,13 @@ namespace AsdRcSlab
         private static string ReplaceRcTitlePrefix(string rcTitle1, string newPrefix)
         {
             if (string.IsNullOrWhiteSpace(rcTitle1)) return rcTitle1;
-            if (string.IsNullOrWhiteSpace(newPrefix)) return rcTitle1;
             var m = Regex.Match(rcTitle1, @"REINFORCEMENT\s+DETAILS", RegexOptions.IgnoreCase);
             if (!m.Success) return rcTitle1;
-            return newPrefix + " " + rcTitle1.Substring(m.Index);
+            string suffix = rcTitle1.Substring(m.Index);
+            if (string.IsNullOrEmpty(newPrefix))
+                return suffix;
+            else
+                return newPrefix + " " + suffix;
         }
 
         private enum MsTextCategory { MainBottom, MainTop, Section, Ph, Detail }
@@ -1628,11 +1640,10 @@ namespace AsdRcSlab
 
                             string newVal = null;
 
-                            // Specjalna obsługa TITLE_1: podmień prefix przed "REINFORCEMENT DETAILS"
-                            if (!string.IsNullOrEmpty(gaTitlePrefix) &&
-                                string.Equals(att.Tag, "TITLE_1", StringComparison.OrdinalIgnoreCase))
+                            // Specjalna obsługa TITLE_1: podmień lub usuń prefix przed "REINFORCEMENT DETAILS"
+                            if (string.Equals(att.Tag, "TITLE_1", StringComparison.OrdinalIgnoreCase))
                             {
-                                newVal = ReplaceRcTitlePrefix(att.TextString, gaTitlePrefix);
+                                newVal = ReplaceRcTitlePrefix(att.TextString, gaTitlePrefix ?? "");
                             }
                             // DRAWING_NUMBER: buduj suffix wg numeru plotu i indeksu layoutu
                             else if (!string.IsNullOrEmpty(gaDrawingPrefix) &&
