@@ -63,7 +63,7 @@ namespace AsdRcSlab
                     else       sideDb.ReadDwgFile(path, FileShare.Read, true, "");
 
                     ed.WriteMessage($"\n[ASD-IMR] Source file: {path}");
-                    plots = ScanReinforcementMaps(sideDb, ed);
+                    plots = ScanReinforcementMaps(sideDb);
                 }
             }
             catch (System.Exception ex)
@@ -112,7 +112,7 @@ namespace AsdRcSlab
 
         // ── Scan helpers ──────────────────────────────────────────────────────
 
-        private List<PlotMapInfo> ScanReinforcementMaps(Database sideDb, Editor ed)
+        private List<PlotMapInfo> ScanReinforcementMaps(Database sideDb)
         {
             var plots = new List<PlotMapInfo>();
 
@@ -121,39 +121,8 @@ namespace AsdRcSlab
                 var bt = (BlockTable)tr.GetObject(sideDb.BlockTableId, OpenMode.ForRead);
                 var ms = (BlockTableRecord)tr.GetObject(bt[BlockTableRecord.ModelSpace], OpenMode.ForRead);
 
-                // === DIAG: count all entities ===
-                int totalEnts = 0, totalMText = 0, totalPolyline = 0;
-                var mtextLayers = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
-                var polylineLayers = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
-                foreach (ObjectId id in ms)
-                {
-                    totalEnts++;
-                    var ent = tr.GetObject(id, OpenMode.ForRead) as Entity;
-                    if (ent == null) continue;
-                    if (ent is MText)
-                    {
-                        totalMText++;
-                        mtextLayers.TryGetValue(ent.Layer, out int c1);
-                        mtextLayers[ent.Layer] = c1 + 1;
-                    }
-                    if (ent is Autodesk.AutoCAD.DatabaseServices.Polyline)
-                    {
-                        totalPolyline++;
-                        polylineLayers.TryGetValue(ent.Layer, out int c2);
-                        polylineLayers[ent.Layer] = c2 + 1;
-                    }
-                }
-                ed.WriteMessage($"\n[ASD-IMR DIAG] ModelSpace: {totalEnts} entities ({totalMText} MText, {totalPolyline} Polyline)");
-                ed.WriteMessage("\n[ASD-IMR DIAG] MText layers (top 15):");
-                foreach (var kv in mtextLayers.OrderByDescending(x => x.Value).Take(15))
-                    ed.WriteMessage($"\n    {kv.Key}: {kv.Value}");
-                ed.WriteMessage("\n[ASD-IMR DIAG] Polyline layers (top 15):");
-                foreach (var kv in polylineLayers.OrderByDescending(x => x.Value).Take(15))
-                    ed.WriteMessage($"\n    {kv.Key}: {kv.Value}");
-
-                // 1. Find headers — MTEXT on PH-SLAB-HEADER
+                // 1. Find headers (MTEXT on PH-SLAB-HEADER)
                 var headers = new List<(Point3d Pos, string Label)>();
-                int headerScanCount = 0;
                 foreach (ObjectId id in ms)
                 {
                     var ent = tr.GetObject(id, OpenMode.ForRead) as Entity;
@@ -161,27 +130,11 @@ namespace AsdRcSlab
                     if (!string.Equals(ent.Layer, "PH-SLAB-HEADER", StringComparison.OrdinalIgnoreCase)) continue;
                     if (ent is MText mt)
                     {
-                        headerScanCount++;
-                        string rawContents = mt.Contents ?? "(null)";
-                        string label = ExtractFirstLineFromMText(rawContents);
-
-                        if (headerScanCount <= 3)
-                        {
-                            string truncated = rawContents.Length > 150
-                                ? rawContents.Substring(0, 150) + "..."
-                                : rawContents;
-                            ed.WriteMessage($"\n[ASD-IMR DIAG] HeaderMText[{headerScanCount}] raw Contents=\"{truncated}\"");
-                            ed.WriteMessage($"\n[ASD-IMR DIAG] HeaderMText[{headerScanCount}] extracted label=\"{label}\"");
-                        }
-
-                        if (string.IsNullOrWhiteSpace(label))
-                            label = "(no label)";
+                        string label = ExtractFirstLineFromMText(mt.Contents ?? "");
+                        if (string.IsNullOrWhiteSpace(label)) label = "(no label)";
                         headers.Add((mt.Location, label));
                     }
                 }
-                ed.WriteMessage($"\n[ASD-IMR DIAG] Headers on PH-SLAB-HEADER: {headers.Count}");
-                for (int i = 0; i < Math.Min(headers.Count, 10); i++)
-                    ed.WriteMessage($"\n    [{i}] X={headers[i].Pos.X:F1} Y={headers[i].Pos.Y:F1}  label=\"{headers[i].Label}\"");
 
                 // 2. Find PH-FRAME polylines
                 var frames = new List<FrameBbox>();
@@ -195,18 +148,13 @@ namespace AsdRcSlab
                     catch { continue; }
                     frames.Add(new FrameBbox
                     {
-                        Xmin    = ext.MinPoint.X,
-                        Xmax    = ext.MaxPoint.X,
-                        Ymin    = ext.MinPoint.Y,
-                        Ymax    = ext.MaxPoint.Y,
+                        Xmin = ext.MinPoint.X, Xmax = ext.MaxPoint.X,
+                        Ymin = ext.MinPoint.Y, Ymax = ext.MaxPoint.Y,
                         FrameId = id
                     });
                 }
-                ed.WriteMessage($"\n[ASD-IMR DIAG] Frames on PH-FRAME: {frames.Count}");
-                for (int i = 0; i < Math.Min(frames.Count, 5); i++)
-                    ed.WriteMessage($"\n    [{i}] X=[{frames[i].Xmin:F1}..{frames[i].Xmax:F1}] Y=[{frames[i].Ymin:F1}..{frames[i].Ymax:F1}]");
 
-                // 3. Group frames into columns by Xmin (tolerance 10 units)
+                // 3. Group frames by column (xmin within tolerance)
                 const double colTol = 10.0;
                 var columns = new List<List<FrameBbox>>();
                 foreach (var f in frames)
@@ -215,57 +163,29 @@ namespace AsdRcSlab
                     if (existing != null) existing.Add(f);
                     else columns.Add(new List<FrameBbox> { f });
                 }
-                ed.WriteMessage($"\n[ASD-IMR DIAG] Columns of frames: {columns.Count}");
-                for (int i = 0; i < columns.Count; i++)
-                    ed.WriteMessage($"\n    Col[{i}] X=[{columns[i][0].Xmin:F1}..{columns[i][0].Xmax:F1}] frames={columns[i].Count}");
 
-                // 4. Match each header to a column, then identify T1/T2/B1/B2
-                int matchedPlots = 0, skippedNoCol = 0, skippedNoTitle = 0;
+                // 4. Match each header to a column (header.X in [column.Xmin - 500, column.Xmax])
                 foreach (var header in headers)
                 {
-                    int colIdx = -1;
-                    List<FrameBbox> col = null;
-                    for (int ci = 0; ci < columns.Count; ci++)
-                    {
-                        var c = columns[ci];
-                        if (header.Pos.X >= c[0].Xmin - 500.0 && header.Pos.X <= c[0].Xmax)
-                        {
-                            col = c;
-                            colIdx = ci;
-                            break;
-                        }
-                    }
-                    if (col == null || col.Count < 4)
-                    {
-                        skippedNoCol++;
-                        ed.WriteMessage($"\n[ASD-IMR DIAG] Header \"{header.Label}\" (X={header.Pos.X:F1}) → NO COLUMN MATCH");
-                        continue;
-                    }
+                    var col = columns.FirstOrDefault(c =>
+                        header.Pos.X >= c[0].Xmin - 500.0 &&
+                        header.Pos.X <= c[0].Xmax);
+                    if (col == null || col.Count < 4) continue;
 
-                    var t1 = FindFrameWithTitleLayer(col, ms, tr, "PH-T1-TITLE", ed, colIdx);
-                    var t2 = FindFrameWithTitleLayer(col, ms, tr, "PH-T2-TITLE", ed, colIdx);
-                    var b1 = FindFrameWithTitleLayer(col, ms, tr, "PH-B1-TITLE", ed, colIdx);
-                    var b2 = FindFrameWithTitleLayer(col, ms, tr, "PH-B2-TITLE", ed, colIdx);
-                    ed.WriteMessage($"\n[ASD-IMR DIAG] Header \"{header.Label}\" (X={header.Pos.X:F1}) → col[{colIdx}] with {col.Count} frames; T1={t1 != null} T2={t2 != null} B1={b1 != null} B2={b2 != null}");
+                    var t1 = FindFrameWithTitleLayer(col, ms, tr, "PH-T1-TITLE");
+                    var t2 = FindFrameWithTitleLayer(col, ms, tr, "PH-T2-TITLE");
+                    var b1 = FindFrameWithTitleLayer(col, ms, tr, "PH-B1-TITLE");
+                    var b2 = FindFrameWithTitleLayer(col, ms, tr, "PH-B2-TITLE");
 
-                    if (t1 == null || t2 == null || b1 == null || b2 == null)
-                    {
-                        skippedNoTitle++;
-                        continue;
-                    }
+                    if (t1 == null || t2 == null || b1 == null || b2 == null) continue;
 
                     plots.Add(new PlotMapInfo
                     {
-                        Label          = header.Label,
-                        T1             = t1,
-                        T2             = t2,
-                        B1             = b1,
-                        B2             = b2,
+                        Label = header.Label,
+                        T1 = t1, T2 = t2, B1 = b1, B2 = b2,
                         ReferencePoint = new Point3d(t1.Xmin, t1.Ymax, 0)
                     });
-                    matchedPlots++;
                 }
-                ed.WriteMessage($"\n[ASD-IMR DIAG] Summary: matched={matchedPlots}, skipped (no col)={skippedNoCol}, skipped (no title)={skippedNoTitle}");
 
                 tr.Commit();
             }
@@ -274,12 +194,8 @@ namespace AsdRcSlab
         }
 
         private FrameBbox FindFrameWithTitleLayer(List<FrameBbox> column, BlockTableRecord ms,
-            Transaction tr, string titleLayer, Editor ed, int colIdx)
+            Transaction tr, string titleLayer)
         {
-            int totalOnLayer = 0;
-            int hitInColumn = 0;
-            FrameBbox firstHit = null;
-
             foreach (ObjectId id in ms)
             {
                 var ent = tr.GetObject(id, OpenMode.ForRead) as Entity;
@@ -295,22 +211,12 @@ namespace AsdRcSlab
                 else
                     continue;
 
-                totalOnLayer++;
-
                 var frame = column.FirstOrDefault(f =>
                     p.X >= f.Xmin && p.X <= f.Xmax &&
                     p.Y >= f.Ymin && p.Y <= f.Ymax);
-                if (frame != null)
-                {
-                    hitInColumn++;
-                    if (firstHit == null) firstHit = frame;
-                }
+                if (frame != null) return frame;
             }
-
-            if (colIdx == 0)
-                ed.WriteMessage($"\n[ASD-IMR DIAG] FindFrame on '{titleLayer}': totalOnLayer={totalOnLayer}, hitInCol[0]={hitInColumn}, found={(firstHit != null)}");
-
-            return firstHit;
+            return null;
         }
 
         // Wyciąga pierwszą linię z MText.Contents pomijając formatting tags
