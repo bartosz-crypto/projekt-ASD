@@ -245,7 +245,7 @@ namespace AsdRcSlab
             sb.AppendLine("DANE PROJEKTU:");
             foreach (var tag in GaiFieldsToCopy)
             {
-                string val = srcAttrs.TryGetValue(tag, out var v) && !string.IsNullOrEmpty(v) ? v : "—";
+                string val = srcAttrs.TryGetValue(tag, out var v) && !string.IsNullOrEmpty(v) ? v : "(brak)";
                 sb.AppendLine($"  {tag,-10}: {val}");
             }
             sb.AppendLine();
@@ -291,10 +291,10 @@ namespace AsdRcSlab
             }
             sb.AppendLine();
             sb.AppendLine("SLAB NOTES (wartości liczbowe):");
-            sb.AppendLine($"  SLAB AREA       : {(gaSlabValues.TryGetValue(KeySlabArea,       out var sa)  && !string.IsNullOrEmpty(sa)  ? sa  + " m²" : "—")}");
-            sb.AppendLine($"  SLAB PERIMETER  : {(gaSlabValues.TryGetValue(KeySlabPerimeter,  out var spe) && !string.IsNullOrEmpty(spe) ? spe + " m"   : "—")}");
-            sb.AppendLine($"  SLAB THICKNESS  : {(gaSlabValues.TryGetValue(KeySlabThickness,  out var sth) && !string.IsNullOrEmpty(sth) ? sth + " mm"  : "—")}");
-            sb.AppendLine($"  CONCRETE VOLUME = {(gaSlabValues.TryGetValue(KeyConcreteVolume, out var svo) && !string.IsNullOrEmpty(svo) ? svo + "m³"   : "—")}");
+            sb.AppendLine($"  SLAB AREA       : {(gaSlabValues.TryGetValue(KeySlabArea,       out var sa)  && !string.IsNullOrEmpty(sa)  ? sa  + " m²" : "(brak)")}");
+            sb.AppendLine($"  SLAB PERIMETER  : {(gaSlabValues.TryGetValue(KeySlabPerimeter,  out var spe) && !string.IsNullOrEmpty(spe) ? spe + " m"   : "(brak)")}");
+            sb.AppendLine($"  SLAB THICKNESS  : {(gaSlabValues.TryGetValue(KeySlabThickness,  out var sth) && !string.IsNullOrEmpty(sth) ? sth + " mm"  : "(brak)")}");
+            sb.AppendLine($"  CONCRETE VOLUME = {(gaSlabValues.TryGetValue(KeyConcreteVolume, out var svo) && !string.IsNullOrEmpty(svo) ? svo + "m³"   : "(brak)")}");
             sb.AppendLine();
             if (gaSlabValues.TryGetValue(KeySlabThickness, out var sthHys) &&
                 int.TryParse(sthHys, out int thHys))
@@ -1463,18 +1463,18 @@ namespace AsdRcSlab
 
                         newContents = vArea != null
                             ? SlabAreaReplaceRx.Replace(newContents, "${1}" + vArea + "${3}")
-                            : SlabAreaReplaceRx.Replace(newContents, "${1}—");
+                            : SlabAreaReplaceRx.Replace(newContents, "${1}");
                         newContents = vPer != null
                             ? SlabPerimeterReplaceRx.Replace(newContents, "${1}" + vPer + "${3}")
-                            : SlabPerimeterReplaceRx.Replace(newContents, "${1}—");
+                            : SlabPerimeterReplaceRx.Replace(newContents, "${1}");
                         newContents = vTh != null
                             ? SlabThicknessReplaceRx.Replace(newContents, "${1}" + vTh + "${3}")
-                            : SlabThicknessReplaceRx.Replace(newContents, "${1}—");
+                            : SlabThicknessReplaceRx.Replace(newContents, "${1}");
 
                         // CONCRETE VOLUME — podmień tylko liczbę; m³ codes z RC zachowane, tail wycinany
                         newContents = vVol != null
                             ? ConcreteVolumeReplaceRx.Replace(newContents, m => m.Groups[1].Value + vVol + m.Groups[2].Value)
-                            : ConcreteVolumeReplaceRx.Replace(newContents, m => m.Groups[1].Value + "—");
+                            : ConcreteVolumeReplaceRx.Replace(newContents, m => m.Groups[1].Value);
 
                         // CONCRETE TO BE DESIGNATED block — substring-based (unika interpretacji $ w gaBlock)
                         if (values.TryGetValue(KeyConcreteDesignated, out var gaBlock) && !string.IsNullOrEmpty(gaBlock))
@@ -1645,7 +1645,7 @@ namespace AsdRcSlab
                             else if (tagsSet.Contains(att.Tag))
                             {
                                 if (src.TryGetValue(att.Tag, out string srcVal))
-                                    newVal = !string.IsNullOrEmpty(srcVal) ? srcVal : "—";
+                                    newVal = !string.IsNullOrEmpty(srcVal) ? srcVal : "";
                             }
 
                             if (newVal == null) continue;
