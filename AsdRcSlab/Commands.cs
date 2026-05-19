@@ -245,7 +245,7 @@ namespace AsdRcSlab
             sb.AppendLine("DANE PROJEKTU:");
             foreach (var tag in GaiFieldsToCopy)
             {
-                string val = srcAttrs.TryGetValue(tag, out var v) ? v : "(brak)";
+                string val = srcAttrs.TryGetValue(tag, out var v) && !string.IsNullOrEmpty(v) ? v : "—";
                 sb.AppendLine($"  {tag,-10}: {val}");
             }
             sb.AppendLine();
@@ -291,10 +291,10 @@ namespace AsdRcSlab
             }
             sb.AppendLine();
             sb.AppendLine("SLAB NOTES (wartości liczbowe):");
-            sb.AppendLine($"  SLAB AREA       : {(gaSlabValues.TryGetValue(KeySlabArea,       out var sa)  ? sa  : "(brak)")} m²");
-            sb.AppendLine($"  SLAB PERIMETER  : {(gaSlabValues.TryGetValue(KeySlabPerimeter,  out var spe) ? spe : "(brak)")} m");
-            sb.AppendLine($"  SLAB THICKNESS  : {(gaSlabValues.TryGetValue(KeySlabThickness,  out var sth) ? sth : "(brak)")} mm");
-            sb.AppendLine($"  CONCRETE VOLUME = {(gaSlabValues.TryGetValue(KeyConcreteVolume, out var svo) ? svo : "(brak)")}m³");
+            sb.AppendLine($"  SLAB AREA       : {(gaSlabValues.TryGetValue(KeySlabArea,       out var sa)  && !string.IsNullOrEmpty(sa)  ? sa  + " m²" : "—")}");
+            sb.AppendLine($"  SLAB PERIMETER  : {(gaSlabValues.TryGetValue(KeySlabPerimeter,  out var spe) && !string.IsNullOrEmpty(spe) ? spe + " m"   : "—")}");
+            sb.AppendLine($"  SLAB THICKNESS  : {(gaSlabValues.TryGetValue(KeySlabThickness,  out var sth) && !string.IsNullOrEmpty(sth) ? sth + " mm"  : "—")}");
+            sb.AppendLine($"  CONCRETE VOLUME = {(gaSlabValues.TryGetValue(KeyConcreteVolume, out var svo) && !string.IsNullOrEmpty(svo) ? svo + "m³"   : "—")}");
             sb.AppendLine();
             if (gaSlabValues.TryGetValue(KeySlabThickness, out var sthHys) &&
                 int.TryParse(sthHys, out int thHys))
@@ -1456,19 +1456,25 @@ namespace AsdRcSlab
 
                         string newContents = contents;
 
-                        if (values.TryGetValue(KeySlabArea, out var vArea) && !string.IsNullOrEmpty(vArea))
-                            newContents = SlabAreaReplaceRx.Replace(newContents, "${1}" + vArea + "${3}");
-                        if (values.TryGetValue(KeySlabPerimeter, out var vPer) && !string.IsNullOrEmpty(vPer))
-                            newContents = SlabPerimeterReplaceRx.Replace(newContents, "${1}" + vPer + "${3}");
-                        if (values.TryGetValue(KeySlabThickness, out var vTh) && !string.IsNullOrEmpty(vTh))
-                            newContents = SlabThicknessReplaceRx.Replace(newContents, "${1}" + vTh + "${3}");
+                        string vArea = values.TryGetValue(KeySlabArea,      out var a)   && !string.IsNullOrEmpty(a)   ? a   : null;
+                        string vPer  = values.TryGetValue(KeySlabPerimeter, out var per) && !string.IsNullOrEmpty(per) ? per : null;
+                        string vTh   = values.TryGetValue(KeySlabThickness, out var th)  && !string.IsNullOrEmpty(th)  ? th  : null;
+                        string vVol  = values.TryGetValue(KeyConcreteVolume, out var vol) && !string.IsNullOrEmpty(vol) ? vol : null;
+
+                        newContents = vArea != null
+                            ? SlabAreaReplaceRx.Replace(newContents, "${1}" + vArea + "${3}")
+                            : SlabAreaReplaceRx.Replace(newContents, "${1}—");
+                        newContents = vPer != null
+                            ? SlabPerimeterReplaceRx.Replace(newContents, "${1}" + vPer + "${3}")
+                            : SlabPerimeterReplaceRx.Replace(newContents, "${1}—");
+                        newContents = vTh != null
+                            ? SlabThicknessReplaceRx.Replace(newContents, "${1}" + vTh + "${3}")
+                            : SlabThicknessReplaceRx.Replace(newContents, "${1}—");
 
                         // CONCRETE VOLUME — podmień tylko liczbę; m³ codes z RC zachowane, tail wycinany
-                        if (values.TryGetValue(KeyConcreteVolume, out var vVol) && !string.IsNullOrEmpty(vVol))
-                        {
-                            newContents = ConcreteVolumeReplaceRx.Replace(newContents, m =>
-                                m.Groups[1].Value + vVol + m.Groups[2].Value);
-                        }
+                        newContents = vVol != null
+                            ? ConcreteVolumeReplaceRx.Replace(newContents, m => m.Groups[1].Value + vVol + m.Groups[2].Value)
+                            : ConcreteVolumeReplaceRx.Replace(newContents, m => m.Groups[1].Value + "—");
 
                         // CONCRETE TO BE DESIGNATED block — substring-based (unika interpretacji $ w gaBlock)
                         if (values.TryGetValue(KeyConcreteDesignated, out var gaBlock) && !string.IsNullOrEmpty(gaBlock))
@@ -1638,7 +1644,8 @@ namespace AsdRcSlab
                             // Standardowa obsługa CLIENT_* / PROJ_*
                             else if (tagsSet.Contains(att.Tag))
                             {
-                                src.TryGetValue(att.Tag, out newVal);
+                                if (src.TryGetValue(att.Tag, out string srcVal))
+                                    newVal = !string.IsNullOrEmpty(srcVal) ? srcVal : "—";
                             }
 
                             if (newVal == null) continue;
