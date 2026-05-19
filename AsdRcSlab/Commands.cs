@@ -63,9 +63,9 @@ namespace AsdRcSlab
             @"CONCRETE\s+VOLUME\s*=\s*([^\\]+?)(?=\\|$)",
             RegexOptions.IgnoreCase);
 
-        // CONCRETE VOLUME replace w RC: G1=prefix, G2=m³ codes z RC (zachowane); stary tail wycinany
+        // CONCRETE VOLUME replace w RC: G1=prefix, G2=old value (numeric or MText-formatted), G3=m³ codes z RC (zachowane); stary tail wycinany
         private static readonly Regex ConcreteVolumeReplaceRx = new Regex(
-            @"(CONCRETE\s+VOLUME\s*=\s*)[\d.]+(\s*m(?:\\[A-Za-z][^;]*;|\s)*[³3]?(?:\\[A-Za-z][^;]*;|\s)*)[^\\]*?(?=\\P|\d+\.\s|\z)",
+            @"(CONCRETE\s+VOLUME\s*=\s*)((?:[^\\]|\\[A-Za-z][^;\\]*;)*?)(\s*m(?:\\[A-Za-z][^;]*;|\s)*[³3]?(?:\\[A-Za-z][^;]*;|\s)*)[^\\]*?(?=\\P|\d+\.\s|\z)",
             RegexOptions.IgnoreCase);
 
         // Podmienia HYSTOOLS DK90/DK165 (w tym samym MText co SLAB NOTES)
@@ -73,10 +73,16 @@ namespace AsdRcSlab
             @"HYSTOOLS\s+DK(?:90|165)",
             RegexOptions.IgnoreCase);
 
-        // Slab replace: group 1 = "X = ", group 2 = number, group 3 = " m"/" mm"
-        private static readonly Regex SlabAreaReplaceRx      = new Regex(@"(SLAB\s+AREA\s*=\s*)([\d.]+)(\s*m)",       RegexOptions.IgnoreCase);
-        private static readonly Regex SlabPerimeterReplaceRx = new Regex(@"(SLAB\s+PERIMETER\s*=\s*)([\d.]+)(\s*m)",  RegexOptions.IgnoreCase);
-        private static readonly Regex SlabThicknessReplaceRx = new Regex(@"(SLAB\s+THICKNESS\s*=\s*)([\d.]+)(\s*mm)", RegexOptions.IgnoreCase);
+        // Slab replace: group 1 = "X = ", group 2 = old value (numeric or MText-formatted), group 3 = " m"/" mm"
+        private static readonly Regex SlabAreaReplaceRx = new Regex(
+            @"(SLAB\s+AREA\s*=\s*)((?:[^\\]|\\[A-Za-z][^;\\]*;)*?)(\s*m)(?=\\|$)",
+            RegexOptions.IgnoreCase);
+        private static readonly Regex SlabPerimeterReplaceRx = new Regex(
+            @"(SLAB\s+PERIMETER\s*=\s*)((?:[^\\]|\\[A-Za-z][^;\\]*;)*?)(\s*m)(?=\\|$)",
+            RegexOptions.IgnoreCase);
+        private static readonly Regex SlabThicknessReplaceRx = new Regex(
+            @"(SLAB\s+THICKNESS\s*=\s*)((?:[^\\]|\\[A-Za-z][^;\\]*;)*?)(\s*mm)(?=\\|$)",
+            RegexOptions.IgnoreCase);
 
         // Raw replace: replaces all content after "=" (to first backslash or end) with raw value
         private static readonly Regex SlabAreaRawReplaceRx = new Regex(
@@ -1394,8 +1400,6 @@ namespace AsdRcSlab
                     {
                         var mt = tr.GetObject(id, OpenMode.ForRead) as MText;
                         if (mt == null) continue;
-                        if (!string.Equals(mt.Layer, layerName, StringComparison.OrdinalIgnoreCase))
-                            continue;
 
                         string contents = mt.Contents;
                         if (!contents.Contains("SLAB AREA")) continue;
@@ -1481,8 +1485,6 @@ namespace AsdRcSlab
                     {
                         var mt = tr.GetObject(id, OpenMode.ForRead) as MText;
                         if (mt == null) continue;
-                        if (!string.Equals(mt.Layer, layerName, StringComparison.OrdinalIgnoreCase))
-                            continue;
 
                         string contents = mt.Contents;
                         if (!contents.Contains("SLAB AREA")) continue;
@@ -1521,11 +1523,11 @@ namespace AsdRcSlab
 
                         // CONCRETE VOLUME — podmień tylko liczbę; m³ codes z RC zachowane, tail wycinany
                         if (vVol != null)
-                            newContents = ConcreteVolumeReplaceRx.Replace(newContents, m => m.Groups[1].Value + vVol + m.Groups[2].Value);
+                            newContents = ConcreteVolumeReplaceRx.Replace(newContents, m => m.Groups[1].Value + vVol + m.Groups[3].Value);
                         else if (vVolRaw != null)
                             newContents = ConcreteVolumeRawReplaceRx.Replace(newContents, "${1}" + vVolRaw);
                         else
-                            newContents = ConcreteVolumeReplaceRx.Replace(newContents, m => m.Groups[1].Value);
+                            newContents = ConcreteVolumeReplaceRx.Replace(newContents, m => m.Groups[1].Value + m.Groups[3].Value);
 
                         // CONCRETE TO BE DESIGNATED block — substring-based (unika interpretacji $ w gaBlock)
                         if (values.TryGetValue(KeyConcreteDesignated, out var gaBlock) && !string.IsNullOrEmpty(gaBlock))
