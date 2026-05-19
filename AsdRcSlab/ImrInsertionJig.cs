@@ -37,6 +37,9 @@ namespace AsdRcSlab
         {
             Vector3d disp = _currentPoint - _plot.ReferencePoint;
 
+            // Biały kolor obrysów (index 7 = paper color, biały na czarnym tle AutoCAD)
+            draw.SubEntityTraits.Color = 7;
+
             var frames = new[] { _plot.T1, _plot.T2, _plot.B1, _plot.B2 };
             foreach (var f in frames)
             {
