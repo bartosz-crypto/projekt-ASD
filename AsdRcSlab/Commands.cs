@@ -168,14 +168,8 @@ namespace AsdRcSlab
             }
             catch (System.Exception ex)
             {
-                string inner = ex.InnerException != null
-                    ? $"\nInnerException: {ex.InnerException.GetType().Name}: {ex.InnerException.Message}"
-                    : "";
-                string msg = $"Nie można otworzyć pliku GA:\n" +
-                             $"{ex.GetType().Name}: {ex.Message}{inner}\n\n" +
-                             $"Stack (top 5):\n{string.Join("\n", (ex.StackTrace ?? "").Split('\n').Take(5))}";
-                MessageBox.Show(msg, "GAI", MessageBoxButton.OK, MessageBoxImage.Error);
-                ed.WriteMessage($"\nGAI EXCEPTION: {ex}");
+                MessageBox.Show($"Nie można otworzyć pliku GA:\n{ex.Message}",
+                                "GAI", MessageBoxButton.OK, MessageBoxImage.Error);
                 return;
             }
 
@@ -349,14 +343,8 @@ namespace AsdRcSlab
             }
             catch (System.Exception ex)
             {
-                string inner = ex.InnerException != null
-                    ? $"\nInnerException: {ex.InnerException.GetType().Name}: {ex.InnerException.Message}"
-                    : "";
-                string msg = $"Błąd podczas nadpisywania atrybutów:\n" +
-                             $"{ex.GetType().Name}: {ex.Message}{inner}\n\n" +
-                             $"Stack (top 5):\n{string.Join("\n", (ex.StackTrace ?? "").Split('\n').Take(5))}";
-                MessageBox.Show(msg, "GAI", MessageBoxButton.OK, MessageBoxImage.Error);
-                ed.WriteMessage($"\nGAI EXCEPTION: {ex}");
+                MessageBox.Show($"Błąd podczas nadpisywania atrybutów:\n{ex.Message}",
+                                "GAI", MessageBoxButton.OK, MessageBoxImage.Error);
                 return;
             }
 
@@ -491,14 +479,8 @@ namespace AsdRcSlab
             }
             catch (System.Exception ex)
             {
-                string inner = ex.InnerException != null
-                    ? $"\nInnerException: {ex.InnerException.GetType().Name}: {ex.InnerException.Message}"
-                    : "";
-                string msg = $"Błąd podczas zapisu atrybutów:\n" +
-                             $"{ex.GetType().Name}: {ex.Message}{inner}\n\n" +
-                             $"Stack (top 5):\n{string.Join("\n", (ex.StackTrace ?? "").Split('\n').Take(5))}";
-                MessageBox.Show(msg, "RCN", MessageBoxButton.OK, MessageBoxImage.Error);
-                ed.WriteMessage($"\nRCN EXCEPTION: {ex}");
+                MessageBox.Show($"Błąd podczas zapisu atrybutów:\n{ex.Message}",
+                                "RCN", MessageBoxButton.OK, MessageBoxImage.Error);
                 return;
             }
 
@@ -995,8 +977,6 @@ namespace AsdRcSlab
         private static List<(MsTextCategory cat, double x, double y)> ScanModelSpaceTexts(Database db)
         {
             var result = new List<(MsTextCategory, double, double)>();
-            var ed = AcApp.DocumentManager.MdiActiveDocument.Editor;
-            int totalTexts = 0, classified = 0;
 
             using (var tr = db.TransactionManager.StartTransaction())
             {
@@ -1006,30 +986,25 @@ namespace AsdRcSlab
                 foreach (ObjectId id in ms)
                 {
                     string content = null;
-                    string layer   = null;
                     double x = 0, y = 0;
 
                     var ent = tr.GetObject(id, OpenMode.ForRead);
                     if (ent is MText mt)
                     {
                         content = mt.Contents;
-                        layer   = mt.Layer;
                         x = mt.Location.X;
                         y = mt.Location.Y;
                     }
                     else if (ent is DBText t)
                     {
                         content = t.TextString;
-                        layer   = t.Layer;
                         x = t.Position.X;
                         y = t.Position.Y;
                     }
                     else continue;
 
                     if (string.IsNullOrEmpty(content)) continue;
-                    totalTexts++;
 
-                    string cat      = null;
                     MsTextCategory? msCat = null;
 
                     var mainMatch = MainLayerRx.Match(content);
@@ -1037,35 +1012,16 @@ namespace AsdRcSlab
                     {
                         string which = mainMatch.Groups[1].Value.ToUpperInvariant();
                         msCat = which == "BOTTOM" ? MsTextCategory.MainBottom : MsTextCategory.MainTop;
-                        cat   = "MAIN_" + which;
                     }
-                    else if (SectionRx.IsMatch(content)) { msCat = MsTextCategory.Section; cat = "SECTION"; }
-                    else if (PhRx.IsMatch(content))      { msCat = MsTextCategory.Ph;      cat = "PH"; }
-                    else if (DetailRx.IsMatch(content))  { msCat = MsTextCategory.Detail;  cat = "DETAIL"; }
+                    else if (SectionRx.IsMatch(content)) msCat = MsTextCategory.Section;
+                    else if (PhRx.IsMatch(content))      msCat = MsTextCategory.Ph;
+                    else if (DetailRx.IsMatch(content))  msCat = MsTextCategory.Detail;
 
                     if (msCat.HasValue)
-                    {
                         result.Add((msCat.Value, x, y));
-                        classified++;
-                    }
-
-                    bool interesting = cat != null
-                        || content.IndexOf("DETAIL",  StringComparison.OrdinalIgnoreCase) >= 0
-                        || content.IndexOf("SECTION", StringComparison.OrdinalIgnoreCase) >= 0
-                        || content.IndexOf("LAYER",   StringComparison.OrdinalIgnoreCase) >= 0
-                        || content.IndexOf("PH",      StringComparison.OrdinalIgnoreCase) >= 0;
-
-                    if (interesting)
-                    {
-                        string snippet = content.Length > 80 ? content.Substring(0, 80) + "..." : content;
-                        snippet = snippet.Replace("\n", "\\n").Replace("\r", "");
-                        string catStr = cat ?? "(nie sklasyfikowano)";
-                        ed.WriteMessage($"\nGAI-MS [{catStr}] layer='{layer}' pos=({x:F0},{y:F0}) | {snippet}");
-                    }
                 }
                 tr.Commit();
             }
-            ed.WriteMessage($"\nGAI-MS: scan zakonczony, totalTexts={totalTexts}, classified={classified}");
             return result;
         }
 
