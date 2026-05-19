@@ -249,11 +249,39 @@ namespace AsdRcSlab
                 return;
             }
 
+            // DIAG 1.1 — przed WblockCloneObjects
+            ed.WriteMessage($"\n[ASD-IMR DIAG] plot.ReferencePoint = ({plot.ReferencePoint.X:F2}, {plot.ReferencePoint.Y:F2})");
+            ed.WriteMessage($"\n[ASD-IMR DIAG] insertionPoint     = ({insertionPoint.X:F2}, {insertionPoint.Y:F2})");
+            Vector3d displacementDiag = insertionPoint - plot.ReferencePoint;
+            ed.WriteMessage($"\n[ASD-IMR DIAG] displacement       = ({displacementDiag.X:F2}, {displacementDiag.Y:F2})");
+            ed.WriteMessage($"\n[ASD-IMR DIAG] T1 source bbox: X=[{plot.T1.Xmin:F1}..{plot.T1.Xmax:F1}] Y=[{plot.T1.Ymin:F1}..{plot.T1.Ymax:F1}]");
+            ed.WriteMessage($"\n[ASD-IMR DIAG] B2 source bbox: X=[{plot.B2.Xmin:F1}..{plot.B2.Xmax:F1}] Y=[{plot.B2.Ymin:F1}..{plot.B2.Ymax:F1}]");
+
             // 2. WblockCloneObjects — cross-database clone
             var idMap = new IdMapping();
             ObjectId msDestId = SymbolUtilityServices.GetBlockModelSpaceId(activeDb);
             sideDb.WblockCloneObjects(idsToClone, msDestId, idMap,
                 DuplicateRecordCloning.Ignore, false);
+
+            // DIAG 1.2 — po WblockCloneObjects, przed Transform
+            ed.WriteMessage($"\n[ASD-IMR DIAG] IdMapping count: {CountIdPairs(idMap)}");
+
+            int sampledBefore = 0;
+            using (var trDiag = activeDb.TransactionManager.StartTransaction())
+            {
+                foreach (IdPair pair in idMap)
+                {
+                    if (!pair.IsPrimary || !pair.IsCloned) continue;
+                    if (sampledBefore >= 3) break;
+                    var ent = trDiag.GetObject(pair.Value, OpenMode.ForRead) as Entity;
+                    if (ent == null) continue;
+                    Extents3d ext;
+                    try { ext = ent.GeometricExtents; } catch { continue; }
+                    ed.WriteMessage($"\n[ASD-IMR DIAG] Cloned[{sampledBefore}] BEFORE transform: type={ent.GetType().Name} layer={ent.Layer} bbox X=[{ext.MinPoint.X:F1}..{ext.MaxPoint.X:F1}] Y=[{ext.MinPoint.Y:F1}..{ext.MaxPoint.Y:F1}]");
+                    sampledBefore++;
+                }
+                trDiag.Commit();
+            }
 
             // 3. Transform sklonowane entities do insertion point
             Vector3d displacement = insertionPoint - plot.ReferencePoint;
@@ -272,6 +300,42 @@ namespace AsdRcSlab
                 }
                 trDest.Commit();
             }
+
+            // DIAG 1.3 — po Transform
+            int sampledAfter = 0;
+            double allXmin = double.MaxValue, allXmax = double.MinValue;
+            double allYmin = double.MaxValue, allYmax = double.MinValue;
+            int totalSampledAfter = 0;
+
+            using (var trDiag = activeDb.TransactionManager.StartTransaction())
+            {
+                foreach (IdPair pair in idMap)
+                {
+                    if (!pair.IsPrimary || !pair.IsCloned) continue;
+                    var ent = trDiag.GetObject(pair.Value, OpenMode.ForRead) as Entity;
+                    if (ent == null) continue;
+                    Extents3d ext;
+                    try { ext = ent.GeometricExtents; } catch { continue; }
+
+                    if (sampledAfter < 3)
+                    {
+                        ed.WriteMessage($"\n[ASD-IMR DIAG] Cloned[{sampledAfter}] AFTER  transform: bbox X=[{ext.MinPoint.X:F1}..{ext.MaxPoint.X:F1}] Y=[{ext.MinPoint.Y:F1}..{ext.MaxPoint.Y:F1}]");
+                        sampledAfter++;
+                    }
+
+                    allXmin = Math.Min(allXmin, ext.MinPoint.X);
+                    allXmax = Math.Max(allXmax, ext.MaxPoint.X);
+                    allYmin = Math.Min(allYmin, ext.MinPoint.Y);
+                    allYmax = Math.Max(allYmax, ext.MaxPoint.Y);
+                    totalSampledAfter++;
+                }
+                trDiag.Commit();
+            }
+
+            ed.WriteMessage($"\n[ASD-IMR DIAG] Overall cloned bbox (after transform): X=[{allXmin:F1}..{allXmax:F1}] Y=[{allYmin:F1}..{allYmax:F1}] (n={totalSampledAfter})");
+            ed.WriteMessage($"\n[ASD-IMR DIAG] Expected T1 top-left at insertion point: ({insertionPoint.X:F2}, {insertionPoint.Y:F2})");
+            ed.WriteMessage($"\n[ASD-IMR DIAG] Actual cloned top-left              : ({allXmin:F2}, {allYmax:F2})");
+            ed.WriteMessage($"\n[ASD-IMR DIAG] Delta (actual - expected)            : ({(allXmin - insertionPoint.X):F2}, {(allYmax - insertionPoint.Y):F2})");
 
             ed.WriteMessage($"\n[INFO] Cloned {idsToClone.Count} entities, transformed {transformed}.");
         }
@@ -320,6 +384,13 @@ namespace AsdRcSlab
             clean = clean.Replace("{", "").Replace("}", "");
 
             return clean.Trim();
+        }
+
+        private static int CountIdPairs(IdMapping idMap)
+        {
+            int n = 0;
+            foreach (IdPair _ in idMap) n++;
+            return n;
         }
     }
 }
