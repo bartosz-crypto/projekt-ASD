@@ -36,8 +36,9 @@ namespace AsdRcSlab
             var doc = AcApp.DocumentManager.MdiActiveDocument;
             if (doc == null) return;
             var ed = doc.Editor;
+            var activeDb = doc.Database;
 
-            // 1. OpenFileDialog (WPF / Microsoft.Win32 — jak w Commands.cs)
+            // 1. OpenFileDialog (Microsoft.Win32, jak było)
             string path;
             var ofd = new Microsoft.Win32.OpenFileDialog
             {
@@ -51,63 +52,68 @@ namespace AsdRcSlab
                 return;
             }
             path = ofd.FileName;
+            ed.WriteMessage($"\n[ASD-IMR] Source file: {path}");
 
-            // 2. Otwórz side DB (wzorzec z Commands.cs)
-            List<PlotMapInfo> plots;
             try
             {
+                // 2. Otwórz sideDb i TRZYMAJ otwartą do końca (ObjectIds muszą być valid przy WblockCloneObjects)
                 using (var sideDb = new Database(false, true))
                 {
                     bool isDxf = path.EndsWith(".dxf", StringComparison.OrdinalIgnoreCase);
                     if (isDxf) sideDb.DxfIn(path, null);
                     else       sideDb.ReadDwgFile(path, FileShare.Read, true, "");
 
-                    ed.WriteMessage($"\n[ASD-IMR] Source file: {path}");
-                    plots = ScanReinforcementMaps(sideDb);
+                    // 3. Scan
+                    var plots = ScanReinforcementMaps(sideDb);
+                    if (plots.Count == 0)
+                    {
+                        ed.WriteMessage("\n[WARN] No reinforcement map plots found in selected file.");
+                        ed.WriteMessage("\n       Expected: PH-SLAB-HEADER MTEXT + PH-FRAME polylines + PH-T1/T2/B1/B2-TITLE MTEXT/DBText.");
+                        return;
+                    }
+                    ed.WriteMessage($"\nFound {plots.Count} plot(s) in source file.");
+
+                    // 4. Dialog wyboru plotu (lub auto-select gdy 1)
+                    PlotMapInfo plot;
+                    if (plots.Count == 1)
+                    {
+                        plot = plots[0];
+                        ed.WriteMessage($"\n[INFO] Only one plot found, auto-selected: {plot.Label}");
+                    }
+                    else
+                    {
+                        var dialog = new ImrPlotPickerDialog(plots);
+                        AcApp.ShowModalWindow(AcApp.MainWindow.Handle, dialog, false);
+                        if (dialog.SelectedPlot == null)
+                        {
+                            ed.WriteMessage("\nImport cancelled.");
+                            return;
+                        }
+                        plot = dialog.SelectedPlot;
+                        ed.WriteMessage($"\n[INFO] Selected plot: {plot.Label}");
+                    }
+
+                    // 5. PromptPoint w bieżącym rysunku — top-left T1
+                    var ppo = new PromptPointOptions("\nSpecify insertion point (top-left of T1 map): ");
+                    ppo.AllowNone = false;
+                    var ppr = ed.GetPoint(ppo);
+                    if (ppr.Status != PromptStatus.OK)
+                    {
+                        ed.WriteMessage("\nImport cancelled.");
+                        return;
+                    }
+                    Point3d insertionPoint = ppr.Value;
+
+                    // 6. Copy 4 maps to active drawing
+                    CopyMapsToActiveDrawing(sideDb, activeDb, plot, insertionPoint, ed);
+
+                    ed.WriteMessage("\n[INFO] Reinforcement maps imported successfully.");
                 }
             }
             catch (System.Exception ex)
             {
-                ed.WriteMessage($"\n[ERROR] Failed to read source file: {ex.Message}");
-                return;
+                ed.WriteMessage($"\n[ERROR] Failed during import: {ex.Message}");
             }
-
-            if (plots.Count == 0)
-            {
-                ed.WriteMessage("\n[WARN] No reinforcement map plots found in selected file.");
-                ed.WriteMessage("\n       Expected: PH-SLAB-HEADER MTEXT + PH-FRAME polylines + PH-T1/T2/B1/B2-TITLE MTEXT.");
-                return;
-            }
-
-            ed.WriteMessage($"\nFound {plots.Count} plot(s) in source file.");
-
-            // 3. Plot picker dialog
-            PlotMapInfo plot;
-            if (plots.Count == 1)
-            {
-                plot = plots[0];
-                ed.WriteMessage($"\nASD-IMR: Auto-selected {plot.Label}.");
-            }
-            else
-            {
-                var dlg = new ImrPlotPickerDialog(plots);
-                if (AcApp.ShowModalWindow(AcApp.MainWindow.Handle, dlg, false) != true
-                    || dlg.SelectedPlot == null)
-                {
-                    ed.WriteMessage("\nImport cancelled.");
-                    return;
-                }
-                plot = dlg.SelectedPlot;
-            }
-
-            // 4. Report (p63 — bez copy)
-            ed.WriteMessage($"\n[INFO] Selected plot: {plot.Label}");
-            ed.WriteMessage($"\n  Reference point (top-left T1): ({plot.ReferencePoint.X:F1}, {plot.ReferencePoint.Y:F1})");
-            ed.WriteMessage($"\n  T1 (TOP principal): X=[{plot.T1.Xmin:F1}..{plot.T1.Xmax:F1}] Y=[{plot.T1.Ymin:F1}..{plot.T1.Ymax:F1}]");
-            ed.WriteMessage($"\n  T2 (TOP cross):     X=[{plot.T2.Xmin:F1}..{plot.T2.Xmax:F1}] Y=[{plot.T2.Ymin:F1}..{plot.T2.Ymax:F1}]");
-            ed.WriteMessage($"\n  B1 (BOT principal): X=[{plot.B1.Xmin:F1}..{plot.B1.Xmax:F1}] Y=[{plot.B1.Ymin:F1}..{plot.B1.Ymax:F1}]");
-            ed.WriteMessage($"\n  B2 (BOT cross):     X=[{plot.B2.Xmin:F1}..{plot.B2.Xmax:F1}] Y=[{plot.B2.Ymin:F1}..{plot.B2.Ymax:F1}]");
-            ed.WriteMessage("\n[INFO] Copy logic and insertion point will be implemented in p64.");
         }
 
         // ── Scan helpers ──────────────────────────────────────────────────────
@@ -191,6 +197,83 @@ namespace AsdRcSlab
             }
 
             return plots.OrderBy(p => p.ReferencePoint.X).ToList();
+        }
+
+        private void CopyMapsToActiveDrawing(Database sideDb, Database activeDb,
+            PlotMapInfo plot, Point3d insertionPoint, Editor ed)
+        {
+            // 1. Zbierz ObjectIds entities których centroid leży w którejkolwiek z 4 ramek
+            var idsToClone = new ObjectIdCollection();
+            var frames = new[] { plot.T1, plot.T2, plot.B1, plot.B2 };
+
+            int collected = 0, skipped = 0;
+            using (var trSrc = sideDb.TransactionManager.StartTransaction())
+            {
+                var bt = (BlockTable)trSrc.GetObject(sideDb.BlockTableId, OpenMode.ForRead);
+                var ms = (BlockTableRecord)trSrc.GetObject(bt[BlockTableRecord.ModelSpace], OpenMode.ForRead);
+
+                foreach (ObjectId id in ms)
+                {
+                    var ent = trSrc.GetObject(id, OpenMode.ForRead) as Entity;
+                    if (ent == null) { skipped++; continue; }
+
+                    if (string.Equals(ent.Layer, "PH-SLAB-HEADER", StringComparison.OrdinalIgnoreCase))
+                    { skipped++; continue; }
+
+                    Extents3d ext;
+                    try { ext = ent.GeometricExtents; }
+                    catch { skipped++; continue; }
+
+                    double cx = (ext.MinPoint.X + ext.MaxPoint.X) / 2.0;
+                    double cy = (ext.MinPoint.Y + ext.MaxPoint.Y) / 2.0;
+
+                    bool inAnyFrame = false;
+                    foreach (var f in frames)
+                    {
+                        if (cx >= f.Xmin && cx <= f.Xmax && cy >= f.Ymin && cy <= f.Ymax)
+                        { inAnyFrame = true; break; }
+                    }
+
+                    if (inAnyFrame) { idsToClone.Add(id); collected++; }
+                    else skipped++;
+                }
+
+                trSrc.Commit();
+            }
+
+            ed.WriteMessage($"\n[INFO] Collected {collected} entities from 4 frames (skipped {skipped}).");
+
+            if (idsToClone.Count == 0)
+            {
+                ed.WriteMessage("\n[WARN] No entities to copy — check frame bbox detection.");
+                return;
+            }
+
+            // 2. WblockCloneObjects — cross-database clone
+            var idMap = new IdMapping();
+            ObjectId msDestId = SymbolUtilityServices.GetBlockModelSpaceId(activeDb);
+            sideDb.WblockCloneObjects(idsToClone, msDestId, idMap,
+                DuplicateRecordCloning.Ignore, false);
+
+            // 3. Transform sklonowane entities do insertion point
+            Vector3d displacement = insertionPoint - plot.ReferencePoint;
+            Matrix3d xform = Matrix3d.Displacement(displacement);
+
+            int transformed = 0;
+            using (var trDest = activeDb.TransactionManager.StartTransaction())
+            {
+                foreach (IdPair pair in idMap)
+                {
+                    if (!pair.IsPrimary) continue;
+                    if (!pair.IsCloned) continue;
+
+                    var ent = trDest.GetObject(pair.Value, OpenMode.ForWrite) as Entity;
+                    if (ent != null) { ent.TransformBy(xform); transformed++; }
+                }
+                trDest.Commit();
+            }
+
+            ed.WriteMessage($"\n[INFO] Cloned {idsToClone.Count} entities, transformed {transformed}.");
         }
 
         private FrameBbox FindFrameWithTitleLayer(List<FrameBbox> column, BlockTableRecord ms,
