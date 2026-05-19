@@ -41,6 +41,11 @@ namespace AsdRcSlab
                     ("Waliduj PH",       "ASD-PHV",  "Sprawdza R77, R79, duplikaty")
                 }, columnsPerRow: 2));
 
+            tab.Panels.Add(CreatePanel("REINFORCEMENT MAPS",
+                new[] {
+                    ("Import Maps", "ASD-IMR", "Import reinforcement maps (TOP T1/T2, BOT B1/B2) from external DXF/DWG")
+                }, columnsPerRow: 1));
+
             ribbon.Tabs.Add(tab);
             tab.IsActive = true;
         }
