@@ -27,7 +27,7 @@
                 <ColumnDefinition Width="160"/>
                 <ColumnDefinition Width="*"/>
             </Grid.ColumnDefinitions>
-            <Label Grid.Column="0" Content="Powierzchnia płyty (m²)"
+            <Label Grid.Column="0" Content="Slab area (m²)"
                    VerticalAlignment="Center" FontSize="12"/>
             <TextBox Grid.Column="1" x:Name="TxtArea" Height="26"
                      Padding="4,2" FontSize="12" Text="0"/>
@@ -44,7 +44,7 @@
 
         <Border Background="#FFF8E1" CornerRadius="3" Padding="8,6" Margin="0,0,0,14">
             <TextBlock FontSize="11" Foreground="#F57F17" TextWrapping="Wrap"
-                       Text="Pełne auto-rysowanie w ASD dostępne w Sprint 2. Ta wersja pokazuje symulację."/>
+                       Text="Full auto-drawing in ASD available in Sprint 2. This version shows a simulation."/>
         </Border>
 
         <!-- Przyciski -->
@@ -52,7 +52,7 @@
             <Button Content="Symuluj" Width="80" Height="28" Margin="0,0,8,0"
                     Click="BtnSimulate_Click"
                     Background="#1565C0" Foreground="White" BorderThickness="0"/>
-            <Button Content="Zamknij" Width="80" Height="28"
+            <Button Content="Close" Width="80" Height="28"
                     Click="BtnClose_Click"
                     Background="#757575" Foreground="White" BorderThickness="0"/>
         </StackPanel>

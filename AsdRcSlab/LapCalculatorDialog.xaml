@@ -1,7 +1,7 @@
 <Window x:Class="AsdRcSlab.LapCalculatorDialog"
         xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
-        Title="Zakłady Auto — Note 16"
+        Title="Lap Calculator — Note 16"
         Width="380" SizeToContent="Height"
         WindowStartupLocation="CenterScreen"
         ResizeMode="NoResize"
@@ -9,7 +9,7 @@
     <StackPanel Margin="16">
 
         <Border Background="#1565C0" CornerRadius="4" Padding="10,8" Margin="0,0,0,14">
-            <TextBlock Text="KALKULATOR ZAKŁADÓW — NOTE 16"
+            <TextBlock Text="LAP CALCULATOR — NOTE 16"
                        FontSize="13" FontWeight="Bold"
                        Foreground="White" HorizontalAlignment="Center"/>
         </Border>
@@ -24,13 +24,13 @@
                 <RowDefinition Height="34"/>
             </Grid.RowDefinitions>
 
-            <Label Grid.Row="0" Grid.Column="0" Content="Długość pola (m)"
+            <Label Grid.Row="0" Grid.Column="0" Content="Span length (m)"
                    VerticalAlignment="Center" FontSize="12"/>
             <TextBox Grid.Row="0" Grid.Column="1" x:Name="TxtSpan"
                      Height="26" Padding="4,2" FontSize="12" Text="5.0"
                      TextChanged="Input_Changed"/>
 
-            <Label Grid.Row="1" Grid.Column="0" Content="Średnica pręta"
+            <Label Grid.Row="1" Grid.Column="0" Content="Bar diameter"
                    VerticalAlignment="Center" FontSize="12"/>
             <ComboBox Grid.Row="1" Grid.Column="1" x:Name="CmbDia"
                       Height="26" FontSize="12"
@@ -54,13 +54,13 @@
                     <RowDefinition Height="28"/>
                 </Grid.RowDefinitions>
 
-                <TextBlock Grid.Row="0" Grid.Column="0" Text="Długość zakładu l₀"
+                <TextBlock Grid.Row="0" Grid.Column="0" Text="Lap length l₀"
                            VerticalAlignment="Center" FontSize="12"/>
                 <TextBlock Grid.Row="0" Grid.Column="1" x:Name="TxtL0"
                            VerticalAlignment="Center" FontSize="13" FontWeight="Bold"
                            Foreground="#1565C0" HorizontalAlignment="Right"/>
 
-                <TextBlock Grid.Row="1" Grid.Column="0" Text="Pozycja zakładu od podpory"
+                <TextBlock Grid.Row="1" Grid.Column="0" Text="Lap position from support"
                            VerticalAlignment="Center" FontSize="12"/>
                 <TextBlock Grid.Row="1" Grid.Column="1" x:Name="TxtPos"
                            VerticalAlignment="Center" FontSize="12"
@@ -81,7 +81,7 @@
                        TextWrapping="Wrap"/>
         </Border>
 
-        <Button Content="Zamknij" Width="80" Height="28" HorizontalAlignment="Right"
+        <Button Content="Close" Width="80" Height="28" HorizontalAlignment="Right"
                 Click="BtnClose_Click"
                 Background="#757575" Foreground="White" BorderThickness="0"/>
     </StackPanel>

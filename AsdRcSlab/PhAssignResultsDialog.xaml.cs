@@ -101,7 +101,7 @@ namespace AsdRcSlab
             int exceed = CountFor("EXCEED"), noAct = CountFor("NO ACTION");
 
             TxtStats.Text =
-                $"Razem: {total} pali  |  " +
+                $"Total: {total} piles  |  " +
                 $"PH1:{p1}  PH2:{p2}  PH3:{p3}  PH3-RE:{p3re}  " +
                 $"PH4:{p4}  PH5:{p5}  PH6:{p6}  PH7:{p7}  PH8:{p8}  PH9:{p9}  " +
                 $"EXCEED:{exceed}  NO ACTION:{noAct}";
@@ -148,30 +148,30 @@ namespace AsdRcSlab
                 if (res.WrongDrawing)
                 {
                     MessageBox.Show(
-                        "Aktywny rysunek nie wygląda jak RC SLAB " +
-                        "(brak nagłówka 'REINFORCEMENT DETAILS OF SPEEDECK').\n\n" +
-                        "Otwórz właściwy rysunek RC i spróbuj ponownie.",
-                        "Zaktualizuj rysunek",
+                        "Active drawing doesn't look like RC SLAB " +
+                        "(missing header 'REINFORCEMENT DETAILS OF SPEEDECK').\n\n" +
+                        "Open the correct RC drawing and try again.",
+                        "Update Drawing",
                         MessageBoxButton.OK, MessageBoxImage.Warning);
                     return;
                 }
 
                 string totalsLine = BuildPhTotalsLine(SessionData.Piles);
                 string msg =
-                    $"Zaktualizowano rysunek.\n\n" +
-                    $"Podpisano pali: {res.Annotated.Count}\n" +
-                    $"Pominięto (NO ACTION): {res.Skipped.Count}\n" +
-                    $"Nie znaleziono: {res.NotFound.Count}\n" +
-                    $"Szablony PH (AP-TEXT): {res.PhLabelsUpdated}\n\n" +
+                    $"Drawing updated.\n\n" +
+                    $"Labelled piles: {res.Annotated.Count}\n" +
+                    $"Skipped (NO ACTION): {res.Skipped.Count}\n" +
+                    $"Not found: {res.NotFound.Count}\n" +
+                    $"PH templates (AP-TEXT): {res.PhLabelsUpdated}\n\n" +
                     totalsLine;
-                MessageBox.Show(msg, "Zaktualizuj rysunek",
+                MessageBox.Show(msg, "Update Drawing",
                     MessageBoxButton.OK, MessageBoxImage.Information);
             }
             catch (Exception ex)
             {
                 MessageBox.Show(
-                    $"Błąd podczas aktualizacji rysunku:\n{ex.Message}",
-                    "Zaktualizuj rysunek",
+                    $"Error updating drawing:\n{ex.Message}",
+                    "Update Drawing",
                     MessageBoxButton.OK, MessageBoxImage.Error);
             }
         }
@@ -192,7 +192,7 @@ namespace AsdRcSlab
                 {
                     var ws = pkg.Workbook.Worksheets.Add("PH REPORT");
 
-                    string[] headers = { "Pile ID", "Util %", "Location", "PH Action", "Tytuł Detalu" };
+                    string[] headers = { "Pile ID", "Util %", "Location", "PH Action", "Detail Title" };
                     for (int c = 0; c < headers.Length; c++)
                     {
                         ws.Cells[1, c + 1].Value = headers[c];
@@ -229,7 +229,7 @@ namespace AsdRcSlab
             }
             catch (Exception ex)
             {
-                MessageBox.Show($"Błąd zapisu: {ex.Message}", "Błąd",
+                MessageBox.Show($"Export error: {ex.Message}", "Error",
                     MessageBoxButton.OK, MessageBoxImage.Error);
             }
         }

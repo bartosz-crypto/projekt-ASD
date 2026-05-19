@@ -46,8 +46,8 @@ namespace AsdRcSlab
                 double minSpan = l0 * 2.0 / 1000.0;
                 if (span < minSpan)
                 {
-                    TxtWarn.Text        = $"Uwaga: pole ({span:F2} m) jest krótsze niż 2×l₀ = {minSpan:F2} m. " +
-                                          $"Zakład może nie zmieścić się poza strefą 15%.";
+                    TxtWarn.Text        = $"Warning: span ({span:F2} m) is shorter than 2×l₀ = {minSpan:F2} m. " +
+                                          $"Lap may not fit outside the 15% zone.";
                     PanelWarn.Visibility = Visibility.Visible;
                 }
                 else

@@ -20,7 +20,7 @@ namespace AsdRcSlab
         {
             if (LstSheets.SelectedItem == null)
             {
-                MessageBox.Show("Wybierz arkusz z listy.", "Brak wyboru",
+                MessageBox.Show("Select a sheet from the list.", "No selection",
                     MessageBoxButton.OK, MessageBoxImage.Warning);
                 return;
             }

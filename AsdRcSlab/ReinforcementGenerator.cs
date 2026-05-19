@@ -98,14 +98,14 @@ namespace AsdRcSlab
                     var slabEnt = tr.GetObject(slabId, OpenMode.ForRead) as Entity;
                     if (!(slabEnt is Polyline slab))
                     {
-                        result.Error = "Encja nie jest polilinią (LWPolyline).";
+                        result.Error = "Entity is not a polyline (LWPolyline).";
                         tr.Abort();
                         return result;
                     }
                     vertices = GetPolylineVertices(slab);
                     if (vertices.Count < 3)
                     {
-                        result.Error = "Polilinia ma mniej niż 3 wierzchołki.";
+                        result.Error = "Polyline has fewer than 3 vertices.";
                         tr.Abort();
                         return result;
                     }
@@ -129,7 +129,7 @@ namespace AsdRcSlab
 
             if (templateBars.Count == 0)
             {
-                result.Error = "Brak szablonów prętów. Uruchom najpierw ASD-GSETUP.";
+                result.Error = "No bar templates. Run ASD-GSETUP first.";
                 return result;
             }
 
@@ -241,7 +241,7 @@ namespace AsdRcSlab
             result.BarsDrawn     = callCount;
             result.LapPositionsX = lapPosX;
             result.LapPositionsY = lapPosY;
-            result.Log = $"Wysłano {callCount} komend DISTRIBUTION ({(isTop ? "T1/T2" : "B1/B2")}).";
+            result.Log = $"Sent {callCount} DISTRIBUTION commands ({(isTop ? "T1/T2" : "B1/B2")}).";
 
             return result;
         }
@@ -261,7 +261,7 @@ namespace AsdRcSlab
                     var slabEnt = tr.GetObject(slabId, OpenMode.ForRead) as Entity;
                     if (!(slabEnt is Polyline slab))
                     {
-                        result.Error = "Encja nie jest polilinią (LWPolyline).";
+                        result.Error = "Entity is not a polyline (LWPolyline).";
                         tr.Abort();
                         return result;
                     }
@@ -275,7 +275,7 @@ namespace AsdRcSlab
                     var vertices = GetPolylineVertices(slab);
                     if (vertices.Count < 3)
                     {
-                        result.Error = "Polilinia ma mniej niż 3 wierzchołki.";
+                        result.Error = "Polyline has fewer than 3 vertices.";
                         tr.Abort();
                         return result;
                     }
@@ -327,7 +327,7 @@ namespace AsdRcSlab
                     tr.Commit();
                     result.LapPositionsX = lapPosX;
                     result.LapPositionsY = lapPosY;
-                    result.Log = $"Wygenerowano {result.BarsDrawn} prętów ({(isTop ? "T1/T2" : "B1/B2")}).";
+                    result.Log = $"Generated {result.BarsDrawn} bars ({(isTop ? "T1/T2" : "B1/B2")}).";
                 }
                 catch (Exception ex) { result.Error = ex.Message; tr.Abort(); }
             }

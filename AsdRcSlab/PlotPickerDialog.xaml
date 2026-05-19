@@ -1,7 +1,7 @@
 <Window x:Class="AsdRcSlab.PlotPickerDialog"
         xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
-        Title="Wybierz plot do wczytania" Height="320" Width="420"
+        Title="Select Plot to Load" Height="320" Width="420"
         WindowStartupLocation="CenterOwner" ResizeMode="NoResize">
     <Grid Margin="12">
         <Grid.RowDefinitions>
@@ -10,7 +10,7 @@
             <RowDefinition Height="Auto"/>
         </Grid.RowDefinitions>
 
-        <TextBlock Grid.Row="0" Text="Dostępne ploty w pliku:" Margin="0,0,0,6"
+        <TextBlock Grid.Row="0" Text="Available plots in file:" Margin="0,0,0,6"
                    FontWeight="SemiBold"/>
 
         <ListBox x:Name="PlotsList" Grid.Row="1" Margin="0,0,0,10"
@@ -28,7 +28,7 @@
         <StackPanel Grid.Row="2" Orientation="Horizontal" HorizontalAlignment="Right">
             <Button Content="OK" Width="80" Height="28" Margin="0,0,8,0"
                     Click="OkClick" IsDefault="True"/>
-            <Button Content="Anuluj" Width="80" Height="28"
+            <Button Content="Cancel" Width="80" Height="28"
                     Click="CancelClick" IsCancel="True"/>
         </StackPanel>
     </Grid>

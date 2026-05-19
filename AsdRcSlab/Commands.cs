@@ -120,7 +120,7 @@ namespace AsdRcSlab
 
             var dlg = new Microsoft.Win32.OpenFileDialog
             {
-                Title  = "Wczytaj projekt",
+                Title  = "Open Project",
                 Filter = "Project JSON (*.json)|*.json",
                 DefaultExt = ".json"
             };
@@ -132,13 +132,13 @@ namespace AsdRcSlab
                 string json = File.ReadAllText(dlg.FileName);
                 SessionData.CurrentProject = JsonConvert.DeserializeObject<ProjectData>(json);
                 doc.Editor.WriteMessage(
-                    $"\nWczytano: {SessionData.CurrentProject.ProjectName}" +
+                    $"\nLoaded: {SessionData.CurrentProject.ProjectName}" +
                     $", DRW: {SessionData.CurrentProject.DRWNumber}" +
                     $", h={SessionData.CurrentProject.SlabThickness}mm\n");
             }
             catch (System.Exception ex)
             {
-                doc.Editor.WriteMessage($"\nBlad wczytywania projektu: {ex.Message}\n");
+                doc.Editor.WriteMessage($"\nError loading project: {ex.Message}\n");
             }
         }
 
@@ -153,12 +153,12 @@ namespace AsdRcSlab
             // 1. File picker
             var dlg = new OpenFileDialog
             {
-                Title  = "Wybierz plik GA (źródło tabelki tytułowej)",
+                Title  = "Select GA file (title block source)",
                 Filter = "AutoCAD drawings (*.dwg;*.dxf)|*.dwg;*.dxf"
             };
             if (dlg.ShowDialog() != true) return;
             string path = dlg.FileName;
-            ed.WriteMessage($"\nGAI: czytam GA z '{Path.GetFileName(path)}'...");
+            ed.WriteMessage($"\nGAI: reading GA from '{Path.GetFileName(path)}'...");
 
             // 2. Czytaj atrybuty A1-BL (zawiera też TITLE_1)
             Dictionary<string, string> srcAttrs;
@@ -168,14 +168,14 @@ namespace AsdRcSlab
             }
             catch (System.Exception ex)
             {
-                MessageBox.Show($"Nie można otworzyć pliku GA:\n{ex.Message}",
+                MessageBox.Show($"Cannot open GA file:\n{ex.Message}",
                                 "GAI", MessageBoxButton.OK, MessageBoxImage.Error);
                 return;
             }
 
             if (srcAttrs == null || srcAttrs.Count == 0)
             {
-                MessageBox.Show($"W pliku GA nie znaleziono bloku '{TitleBlockName}'.",
+                MessageBox.Show($"Title block not found in GA file: '{TitleBlockName}'.",
                                 "GAI", MessageBoxButton.OK, MessageBoxImage.Warning);
                 return;
             }
@@ -212,13 +212,13 @@ namespace AsdRcSlab
                     }
                     catch (System.Exception ex)
                     {
-                        ed.WriteMessage($"\nGAI: nie udało się odczytać first GA number: {ex.Message}");
+                        ed.WriteMessage($"\nGAI: failed to read first GA number: {ex.Message}");
                     }
                 }
             }
             catch (System.Exception ex)
             {
-                MessageBox.Show($"Błąd przy czytaniu GA (SLAB notes):\n{ex.Message}",
+                MessageBox.Show($"Error reading GA (SLAB notes):\n{ex.Message}",
                                 "GAI", MessageBoxButton.OK, MessageBoxImage.Error);
                 return;
             }
@@ -234,41 +234,41 @@ namespace AsdRcSlab
 
             // 6. Preview + confirm
             var sb = new StringBuilder();
-            sb.AppendLine("Skopiować poniższe wartości do RC?");
+            sb.AppendLine("Copy the following values to RC?");
             sb.AppendLine();
-            sb.AppendLine("DANE PROJEKTU:");
+            sb.AppendLine("PROJECT DATA:");
             foreach (var tag in GaiFieldsToCopy)
             {
-                string val = srcAttrs.TryGetValue(tag, out var v) && !string.IsNullOrEmpty(v) ? v : "(brak)";
+                string val = srcAttrs.TryGetValue(tag, out var v) && !string.IsNullOrEmpty(v) ? v : "(none)";
                 sb.AppendLine($"  {tag,-10}: {val}");
             }
             sb.AppendLine();
             sb.AppendLine("TITLE_1:");
             if (string.IsNullOrEmpty(gaTitlePrefix))
             {
-                sb.AppendLine("  GA prefix: (brak)");
-                sb.AppendLine("  → RC TITLE_1: usunięty prefix");
+                sb.AppendLine("  GA prefix: (none)");
+                sb.AppendLine("  → RC TITLE_1: prefix removed");
             }
             else
             {
                 sb.AppendLine($"  GA prefix: \"{gaTitlePrefix}\"");
-                sb.AppendLine($"  → RC TITLE_1: \"{gaTitlePrefix} <reszta po prefix'ie>\"");
+                sb.AppendLine($"  → RC TITLE_1: \"{gaTitlePrefix} <rest after prefix>\"");
             }
             sb.AppendLine();
             sb.AppendLine("DRAWING_NUMBER:");
             if (string.IsNullOrEmpty(gaDrawingPrefix))
             {
-                sb.AppendLine("  (brak prefiksu z GA — nie nadpiszemy)");
+                sb.AppendLine("  (no GA prefix — won't overwrite)");
             }
             else
             {
                 string startInfo;
                 if (firstGaNumber.HasValue)
-                    startInfo = $"Start od GA: GA{firstGaNumber.Value} → RC{firstGaNumber.Value}, RC{firstGaNumber.Value + 1}, ...";
+                    startInfo = $"Starting from GA: GA{firstGaNumber.Value} → RC{firstGaNumber.Value}, RC{firstGaNumber.Value + 1}, ...";
                 else if (plotNumberFromGa.HasValue)
-                    startInfo = $"Plot {plotNumberFromGa.Value} (z TITLE_1 prefix, fallback)";
+                    startInfo = $"Plot {plotNumberFromGa.Value} (from TITLE_1 prefix, fallback)";
                 else
-                    startInfo = "Brak GA number i plot, fallback RC001+";
+                    startInfo = "No GA number or plot, fallback RC001+";
                 sb.AppendLine($"  {startInfo}");
 
                 var rcLayoutNames = new List<string>();
@@ -293,11 +293,11 @@ namespace AsdRcSlab
                 }
             }
             sb.AppendLine();
-            sb.AppendLine("SLAB NOTES (wartości liczbowe):");
-            sb.AppendLine($"  SLAB AREA       : {(gaSlabValues.TryGetValue(KeySlabArea,       out var sa)  && !string.IsNullOrEmpty(sa)  ? sa  + " m²" : "(brak)")}");
-            sb.AppendLine($"  SLAB PERIMETER  : {(gaSlabValues.TryGetValue(KeySlabPerimeter,  out var spe) && !string.IsNullOrEmpty(spe) ? spe + " m"   : "(brak)")}");
-            sb.AppendLine($"  SLAB THICKNESS  : {(gaSlabValues.TryGetValue(KeySlabThickness,  out var sth) && !string.IsNullOrEmpty(sth) ? sth + " mm"  : "(brak)")}");
-            sb.AppendLine($"  CONCRETE VOLUME = {(gaSlabValues.TryGetValue(KeyConcreteVolume, out var svo) && !string.IsNullOrEmpty(svo) ? svo + "m³"   : "(brak)")}");
+            sb.AppendLine("SLAB NOTES (numeric values):");
+            sb.AppendLine($"  SLAB AREA       : {(gaSlabValues.TryGetValue(KeySlabArea,       out var sa)  && !string.IsNullOrEmpty(sa)  ? sa  + " m²" : "(none)")}");
+            sb.AppendLine($"  SLAB PERIMETER  : {(gaSlabValues.TryGetValue(KeySlabPerimeter,  out var spe) && !string.IsNullOrEmpty(spe) ? spe + " m"   : "(none)")}");
+            sb.AppendLine($"  SLAB THICKNESS  : {(gaSlabValues.TryGetValue(KeySlabThickness,  out var sth) && !string.IsNullOrEmpty(sth) ? sth + " mm"  : "(none)")}");
+            sb.AppendLine($"  CONCRETE VOLUME = {(gaSlabValues.TryGetValue(KeyConcreteVolume, out var svo) && !string.IsNullOrEmpty(svo) ? svo + "m³"   : "(none)")}");
             sb.AppendLine();
             if (gaSlabValues.TryGetValue(KeySlabThickness, out var sthHys) &&
                 int.TryParse(sthHys, out int thHys))
@@ -305,11 +305,11 @@ namespace AsdRcSlab
                 string targetDk = thHys == 225 ? "DK90"
                                : thHys == 300 ? "DK165"
                                : "—";
-                sb.AppendLine($"  HYSTOOLS (z thickness {thHys}mm): → {targetDk}");
+                sb.AppendLine($"  HYSTOOLS (from thickness {thHys}mm): → {targetDk}");
             }
             else
             {
-                sb.AppendLine("  HYSTOOLS: brak wykrycia thickness — bez podmiany");
+                sb.AppendLine("  HYSTOOLS: thickness not detected — no substitution");
             }
             sb.AppendLine();
             sb.AppendLine("CONCRETE TO BE DESIGNATED block:");
@@ -322,14 +322,14 @@ namespace AsdRcSlab
             }
             else
             {
-                sb.AppendLine("  (brak — nie znaleziono w GA)");
+                sb.AppendLine("  (none — not found in GA)");
             }
 
-            var confirmResult = MessageBox.Show(sb.ToString(), "GAI — potwierdź",
+            var confirmResult = MessageBox.Show(sb.ToString(), "GAI — confirm",
                                                 MessageBoxButton.YesNo, MessageBoxImage.Question);
             if (confirmResult != MessageBoxResult.Yes)
             {
-                ed.WriteMessage("\nGAI: anulowano przez użytkownika.");
+                ed.WriteMessage("\nGAI: cancelled by user.");
                 return;
             }
 
@@ -343,7 +343,7 @@ namespace AsdRcSlab
             }
             catch (System.Exception ex)
             {
-                MessageBox.Show($"Błąd podczas nadpisywania atrybutów:\n{ex.Message}",
+                MessageBox.Show($"Error overwriting attributes:\n{ex.Message}",
                                 "GAI", MessageBoxButton.OK, MessageBoxImage.Error);
                 return;
             }
@@ -358,15 +358,15 @@ namespace AsdRcSlab
                 }
                 catch (System.Exception ex)
                 {
-                    ed.WriteMessage($"\nGAI: ostrzeżenie SLAB: {ex.Message}");
+                    ed.WriteMessage($"\nGAI: SLAB warning: {ex.Message}");
                 }
             }
 
             // 8. Log + komunikat
-            ed.WriteMessage($"\nGAI: zaktualizowano {updatedAttrLayouts} layout(ów) z tabelką, " +
-                            $"{updatedSlabLayouts} layout(ów) z SLAB NOTES.");
-            MessageBox.Show($"Zaktualizowano:\n• tabelka tytułowa: {updatedAttrLayouts} layout(ów)\n" +
-                            $"• SLAB NOTES: {updatedSlabLayouts} layout(ów)",
+            ed.WriteMessage($"\nGAI: updated {updatedAttrLayouts} layout(s) with title block, " +
+                            $"{updatedSlabLayouts} layout(s) with SLAB NOTES.");
+            MessageBox.Show($"Updated:\n• title block: {updatedAttrLayouts} layout(s)\n" +
+                            $"• SLAB NOTES: {updatedSlabLayouts} layout(s)",
                             "GAI", MessageBoxButton.OK, MessageBoxImage.Information);
         }
 
@@ -388,7 +388,7 @@ namespace AsdRcSlab
             }
             catch (System.Exception ex)
             {
-                ed.WriteMessage($"\nRCN: błąd auto-detekcji TITLE_3: {ex.Message}");
+                ed.WriteMessage($"\nRCN: TITLE_3 auto-detection error: {ex.Message}");
                 autoTitle3Map = new Dictionary<string, string>();
             }
 
@@ -398,7 +398,7 @@ namespace AsdRcSlab
             }
             catch (System.Exception ex)
             {
-                ed.WriteMessage($"\nRCN: błąd auto-detekcji SCALE: {ex.Message}");
+                ed.WriteMessage($"\nRCN: SCALE auto-detection error: {ex.Message}");
                 autoScalesMap = new Dictionary<string, string>();
             }
 
@@ -408,37 +408,37 @@ namespace AsdRcSlab
 
             // 2. Preview
             var sb = new StringBuilder();
-            sb.AppendLine("ASD-RCN — automatyczne wypełnienie tabelek tytułowych RC.");
+            sb.AppendLine("ASD-RCN — auto-fill RC title blocks.");
             sb.AppendLine();
 
-            sb.AppendLine("TITLE_3 (auto z Model space + viewporty):");
+            sb.AppendLine("TITLE_3 (auto from Model space + viewports):");
             if (autoTitle3Map.Count == 0)
             {
-                sb.AppendLine("  (brak — nic nie wykryto)");
+                sb.AppendLine("  (none — nothing detected)");
             }
             else
             {
                 foreach (var kv in autoTitle3Map.OrderBy(k => k.Key, StringComparer.OrdinalIgnoreCase))
                 {
                     string val = string.IsNullOrEmpty(kv.Value)
-                        ? "(brak wykrycia — zostawiam istniejący)"
+                        ? "(not detected — keeping existing)"
                         : "\"" + kv.Value + "\"";
                     sb.AppendLine($"  {kv.Key} → {val}");
                 }
             }
 
             sb.AppendLine();
-            sb.AppendLine("SCALE (auto z viewportów):");
+            sb.AppendLine("SCALE (auto from viewports):");
             if (autoScalesMap.Count == 0)
             {
-                sb.AppendLine("  (brak)");
+                sb.AppendLine("  (none)");
             }
             else
             {
                 foreach (var kv in autoScalesMap.OrderBy(k => k.Key, StringComparer.OrdinalIgnoreCase))
                 {
                     string val = string.IsNullOrEmpty(kv.Value)
-                        ? "(brak viewportów)"
+                        ? "(no viewports)"
                         : "\"" + kv.Value + "\"";
                     sb.AppendLine($"  {kv.Key} → {val}");
                 }
@@ -448,18 +448,18 @@ namespace AsdRcSlab
             sb.AppendLine($"DATE: {nowDate}");
 
             sb.AppendLine();
-            sb.AppendLine("LAYOUT RENAME (po nadpisaniu — wg DRAWING_NUMBER suffix + 'C1'):");
-            sb.AppendLine("  (np. SL44QR001-RC030 → RC030C1)");
+            sb.AppendLine("LAYOUT RENAME (after update — by DRAWING_NUMBER suffix + 'C1'):");
+            sb.AppendLine("  (e.g. SL44QR001-RC030 → RC030C1)");
 
             sb.AppendLine();
-            sb.AppendLine("ODNOŚNIKI \"SEE DRG\":");
-            sb.AppendLine($"  Każdy layout dostanie ramki do wszystkich pozostałych.");
-            sb.AppendLine($"  Warstwa: {RcnRefsLayer} (tworzona jeśli nie istnieje).");
-            sb.AppendLine($"  Pozycja: x=900, y od 580 w dół (poza A1 sheet).");
-            sb.AppendLine($"  Istniejące ramki na tej warstwie zostaną zastąpione.");
+            sb.AppendLine("REFERENCES \"SEE DRG\":");
+            sb.AppendLine($"  Each layout gets frames to all others.");
+            sb.AppendLine($"  Layer: {RcnRefsLayer} (created if not exists).");
+            sb.AppendLine($"  Position: x=900, y from 580 down (outside A1 sheet).");
+            sb.AppendLine($"  Existing frames on this layer will be replaced.");
 
             sb.AppendLine();
-            sb.AppendLine("Zastosować?");
+            sb.AppendLine("Apply?");
 
             var result = MessageBox.Show(
                 sb.ToString(), "ASD-RCN",
@@ -467,7 +467,7 @@ namespace AsdRcSlab
 
             if (result != MessageBoxResult.Yes)
             {
-                ed.WriteMessage("\nRCN: anulowano.");
+                ed.WriteMessage("\nRCN: cancelled.");
                 return;
             }
 
@@ -479,7 +479,7 @@ namespace AsdRcSlab
             }
             catch (System.Exception ex)
             {
-                MessageBox.Show($"Błąd podczas zapisu atrybutów:\n{ex.Message}",
+                MessageBox.Show($"Error saving attributes:\n{ex.Message}",
                                 "RCN", MessageBoxButton.OK, MessageBoxImage.Error);
                 return;
             }
@@ -492,7 +492,7 @@ namespace AsdRcSlab
             }
             catch (System.Exception ex)
             {
-                ed.WriteMessage($"\nRCN: rename layoutów nie powiódł się: {ex.Message}");
+                ed.WriteMessage($"\nRCN: layout rename failed: {ex.Message}");
             }
 
             // 5. Stwórz ramki z odnośnikami "SEE DRG ..."
@@ -503,17 +503,17 @@ namespace AsdRcSlab
             }
             catch (System.Exception ex)
             {
-                ed.WriteMessage($"\nRCN: błąd tworzenia ramek odnośników: {ex.Message}");
+                ed.WriteMessage($"\nRCN: error creating reference frames: {ex.Message}");
                 ed.WriteMessage($"\nRCN REFS EXCEPTION: {ex}");
             }
 
             // 6. Podsumowanie
-            string summary = $"ASD-RCN — gotowe.\n\n" +
-                             $"Zaktualizowano atrybuty w {updatedLayouts} layoutach.\n" +
-                             $"Zmieniono nazwy {renamedLayouts} layoutów.\n" +
-                             $"Wstawiono {refFrames} ramek z odnośnikami (warstwa {RcnRefsLayer}).";
+            string summary = $"ASD-RCN — done.\n\n" +
+                             $"Updated attributes in {updatedLayouts} layout(s).\n" +
+                             $"Renamed {renamedLayouts} layout(s).\n" +
+                             $"Inserted {refFrames} reference frames (layer {RcnRefsLayer}).";
             MessageBox.Show(summary, "ASD-RCN", MessageBoxButton.OK, MessageBoxImage.Information);
-            ed.WriteMessage($"\nRCN: zaktualizowano {updatedLayouts}, rename {renamedLayouts}, refs {refFrames}.");
+            ed.WriteMessage($"\nRCN: updated {updatedLayouts}, renamed {renamedLayouts}, refs {refFrames}.");
         }
 
         [CommandMethod("ASD-SET")]
@@ -531,8 +531,8 @@ namespace AsdRcSlab
             var doc = AcApp.DocumentManager.MdiActiveDocument;
             var ed  = doc.Editor;
 
-            var peo = new PromptEntityOptions("\nWskaż obrys płyty (warstwa SD-PILED-RAFT): ");
-            peo.SetRejectMessage("\nWybierz encję.");
+            var peo = new PromptEntityOptions("\nSelect slab outline (layer SD-PILED-RAFT): ");
+            peo.SetRejectMessage("\nSelect entity.");
             var per = ed.GetEntity(peo);
             if (per.Status != PromptStatus.OK) return;
 
@@ -541,11 +541,11 @@ namespace AsdRcSlab
             {
                 var ent = tr.GetObject(per.ObjectId, OpenMode.ForRead) as Entity;
                 if (ent == null)
-                    validationError = "Nie można otworzyć encji.";
+                    validationError = "Cannot open entity.";
                 else if (ent.Layer != "SD-PILED-RAFT")
-                    validationError = "Zaznacz polilinię na warstwie SD-PILED-RAFT.";
+                    validationError = "Select polyline on layer SD-PILED-RAFT.";
                 else if (!(ent is Polyline))
-                    validationError = "Zaznaczona encja nie jest polilinią (LWPolyline).";
+                    validationError = "Selected entity is not a polyline (LWPolyline).";
                 tr.Commit();
             }
 
@@ -559,7 +559,7 @@ namespace AsdRcSlab
             if (SessionData.TemplateBarsB.Count == 0)
             {
                 System.Windows.MessageBox.Show(
-                    "Najpierw utwórz pręty H10 (rbcr_def_bar_bv) i zarejestruj je komendą ASD-GSETUP.",
+                    "First create H10 bars (rbcr_def_bar_bv) and register them with ASD-GSETUP.",
                     "ASD-GBOT", System.Windows.MessageBoxButton.OK, System.Windows.MessageBoxImage.Warning);
                 return;
             }
@@ -568,15 +568,15 @@ namespace AsdRcSlab
                 SessionData.TemplateBarsB);
             if (!string.IsNullOrEmpty(result.Error))
             {
-                ed.WriteMessage($"\nGBOT błąd: {result.Error}\n");
-                System.Windows.MessageBox.Show(result.Error, "ASD-GBOT — błąd",
+                ed.WriteMessage($"\nGBOT error: {result.Error}\n");
+                System.Windows.MessageBox.Show(result.Error, "ASD-GBOT — error",
                     System.Windows.MessageBoxButton.OK, System.Windows.MessageBoxImage.Error);
                 return;
             }
 
             SessionData.LapPositionsB1 = result.LapPositionsX;
             SessionData.LapPositionsB2 = result.LapPositionsY;
-            ed.WriteMessage($"\nB1/B2: wysyłanie {result.BarsDrawn} prętów do ASD...\n");
+            ed.WriteMessage($"\nB1/B2: sending {result.BarsDrawn} bars to ASD...\n");
         }
 
         [CommandMethod("ASD-GTOP")]
@@ -585,8 +585,8 @@ namespace AsdRcSlab
             var doc = AcApp.DocumentManager.MdiActiveDocument;
             var ed  = doc.Editor;
 
-            var peo = new PromptEntityOptions("\nWskaż obrys płyty (warstwa SD-PILED-RAFT): ");
-            peo.SetRejectMessage("\nWybierz encję.");
+            var peo = new PromptEntityOptions("\nSelect slab outline (layer SD-PILED-RAFT): ");
+            peo.SetRejectMessage("\nSelect entity.");
             var per = ed.GetEntity(peo);
             if (per.Status != PromptStatus.OK) return;
 
@@ -595,11 +595,11 @@ namespace AsdRcSlab
             {
                 var ent = tr.GetObject(per.ObjectId, OpenMode.ForRead) as Entity;
                 if (ent == null)
-                    validationError = "Nie można otworzyć encji.";
+                    validationError = "Cannot open entity.";
                 else if (ent.Layer != "SD-PILED-RAFT")
-                    validationError = "Zaznacz polilinię na warstwie SD-PILED-RAFT.";
+                    validationError = "Select polyline on layer SD-PILED-RAFT.";
                 else if (!(ent is Polyline))
-                    validationError = "Zaznaczona encja nie jest polilinią (LWPolyline).";
+                    validationError = "Selected entity is not a polyline (LWPolyline).";
                 tr.Commit();
             }
 
@@ -613,7 +613,7 @@ namespace AsdRcSlab
             if (SessionData.TemplateBarsT.Count == 0)
             {
                 System.Windows.MessageBox.Show(
-                    "Najpierw utwórz pręty H12 (rbcr_def_bar_bv) i zarejestruj je komendą ASD-GSETUP.",
+                    "First create H12 bars (rbcr_def_bar_bv) and register them with ASD-GSETUP.",
                     "ASD-GTOP", System.Windows.MessageBoxButton.OK, System.Windows.MessageBoxImage.Warning);
                 return;
             }
@@ -623,13 +623,13 @@ namespace AsdRcSlab
                 SessionData.LapPositionsB1, SessionData.LapPositionsB2);
             if (!string.IsNullOrEmpty(result.Error))
             {
-                ed.WriteMessage($"\nGTOP błąd: {result.Error}\n");
-                System.Windows.MessageBox.Show(result.Error, "ASD-GTOP — błąd",
+                ed.WriteMessage($"\nGTOP error: {result.Error}\n");
+                System.Windows.MessageBox.Show(result.Error, "ASD-GTOP — error",
                     System.Windows.MessageBoxButton.OK, System.Windows.MessageBoxImage.Error);
                 return;
             }
 
-            ed.WriteMessage($"\nT1/T2: wysyłanie {result.BarsDrawn} prętów do ASD...\n");
+            ed.WriteMessage($"\nT1/T2: sending {result.BarsDrawn} bars to ASD...\n");
         }
 
         [CommandMethod("ASD-BMM")]
@@ -639,7 +639,7 @@ namespace AsdRcSlab
 
             var fileDlg = new Microsoft.Win32.OpenFileDialog
             {
-                Title      = "Wybierz plik BBS",
+                Title      = "Select BBS file",
                 Filter     = "Excel BBS (*.xlsx)|*.xlsx",
                 DefaultExt = ".xlsx"
             };
@@ -651,14 +651,14 @@ namespace AsdRcSlab
                 int failCount = new[] { result.R87, result.R95, result.R81, result.R83, result.R92 }
                     .Count(r => r.Status == "FAIL");
 
-                doc.Editor.WriteMessage($"\nBMM: {failCount} błędów znaleziono — sprawdź okno wyników.\n");
+                doc.Editor.WriteMessage($"\nBMM: {failCount} error(s) found — check results window.\n");
 
                 var resultDlg = new BmmResultsDialog(result, System.IO.Path.GetFileName(fileDlg.FileName));
                 AcApp.ShowModalWindow(AcApp.MainWindow.Handle, resultDlg, false);
             }
             catch (System.Exception ex)
             {
-                doc.Editor.WriteMessage($"\nBMM błąd: {ex.Message}\n");
+                doc.Editor.WriteMessage($"\nBMM error: {ex.Message}\n");
             }
         }
 
@@ -682,7 +682,7 @@ namespace AsdRcSlab
 
             // ── H10 bars (B1/B2) ─────────────────────────────────────────────────
             var pso1 = new PromptSelectionOptions();
-            pso1.MessageForAdding = "\nZaznacz oknem wszystkie pręty H10 (zestawienie B1/B2): ";
+            pso1.MessageForAdding = "\nSelect all H10 bars in window (B1/B2 layout): ";
             var sel1 = ed.GetSelection(pso1);
             if (sel1.Status != PromptStatus.OK) return;
 
@@ -690,7 +690,7 @@ namespace AsdRcSlab
             if (barsB.Count == 0)
             {
                 System.Windows.MessageBox.Show(
-                    "Nie wykryto prętów H10. Upewnij się że zaznaczono pręty ASD (rbcr_def_bar_bv).",
+                    "No H10 bars detected. Make sure ASD bars (rbcr_def_bar_bv) are selected.",
                     "ASD-GSETUP", System.Windows.MessageBoxButton.OK, System.Windows.MessageBoxImage.Warning);
                 return;
             }
@@ -698,7 +698,7 @@ namespace AsdRcSlab
 
             // ── H12 bars (T1/T2) ─────────────────────────────────────────────────
             var pso2 = new PromptSelectionOptions();
-            pso2.MessageForAdding = "\nZaznacz oknem wszystkie pręty H12 (zestawienie T1/T2): ";
+            pso2.MessageForAdding = "\nSelect all H12 bars in window (T1/T2 layout): ";
             var sel2 = ed.GetSelection(pso2);
             if (sel2.Status != PromptStatus.OK) return;
 
@@ -706,15 +706,15 @@ namespace AsdRcSlab
             if (barsT.Count == 0)
             {
                 System.Windows.MessageBox.Show(
-                    "Nie wykryto prętów H12.",
+                    "No H12 bars detected.",
                     "ASD-GSETUP", System.Windows.MessageBoxButton.OK, System.Windows.MessageBoxImage.Warning);
                 return;
             }
             SessionData.TemplateBarsT = barsT;
 
-            ed.WriteMessage($"\nGSETUP: H10={barsB.Count} prętów, H12={barsT.Count} prętów. Gotowy do ASD-GBOT/ASD-GTOP.\n");
+            ed.WriteMessage($"\nGSETUP: H10={barsB.Count} bars, H12={barsT.Count} bars. Ready for ASD-GBOT/ASD-GTOP.\n");
             System.Windows.MessageBox.Show(
-                $"Zarejestrowano szablony:\n  H10 (B1/B2): {barsB.Count} prętów [{string.Join(", ", System.Linq.Enumerable.Select(barsB.Keys, k => k + "mm"))}]\n  H12 (T1/T2): {barsT.Count} prętów",
+                $"Templates registered:\n  H10 (B1/B2): {barsB.Count} bars [{string.Join(", ", System.Linq.Enumerable.Select(barsB.Keys, k => k + "mm"))}]\n  H12 (T1/T2): {barsT.Count} bars",
                 "ASD-GSETUP", System.Windows.MessageBoxButton.OK, System.Windows.MessageBoxImage.Information);
         }
 
@@ -783,7 +783,7 @@ namespace AsdRcSlab
 
             var fileDlg = new Microsoft.Win32.OpenFileDialog
             {
-                Title  = "Wybierz plik Punching",
+                Title  = "Select Punching file",
                 Filter = "Excel (*.xlsx)|*.xlsx"
             };
             if (fileDlg.ShowDialog() != true) return;
@@ -798,8 +798,8 @@ namespace AsdRcSlab
                 if (plots.Count == 0)
                 {
                     System.Windows.MessageBox.Show(
-                        "Nie znaleziono sekcji 'PLOT N' w arkuszu 'Punching Report to Calcs'.\n\n" +
-                        "Sprawdź czy plik to raport punching w nowym formacie.",
+                        "No 'PLOT N' sections found in sheet 'Punching Report to Calcs'.\n\n" +
+                        "Check if the file is a punching report in the new format.",
                         "PXIE", System.Windows.MessageBoxButton.OK,
                         System.Windows.MessageBoxImage.Warning);
                     return;
@@ -810,7 +810,7 @@ namespace AsdRcSlab
                 if (plots.Count == 1)
                 {
                     selectedPlot = plots[0];
-                    ed.WriteMessage($"\nPXIE: Auto-wybrano {selectedPlot}.\n");
+                    ed.WriteMessage($"\nPXIE: Auto-selected {selectedPlot}.\n");
                 }
                 else
                 {
@@ -828,10 +828,10 @@ namespace AsdRcSlab
                 if (piles.Count == 0)
                 {
                     System.Windows.MessageBox.Show(
-                        "Brak wczytanych pali. Możliwe przyczyny:\n" +
-                        "• plik nie został przeliczony w Excelu (otwórz i zapisz Ctrl+S)\n" +
-                        "• sekcje w pliku są puste\n\n" +
-                        "Sprawdź log w command line po szczegóły.",
+                        "No piles loaded. Possible reasons:\n" +
+                        "• file not recalculated in Excel (open and save Ctrl+S)\n" +
+                        "• file sections are empty\n\n" +
+                        "Check command line log for details.",
                         "PXIE", System.Windows.MessageBoxButton.OK,
                         System.Windows.MessageBoxImage.Warning);
                     return;
@@ -845,17 +845,17 @@ namespace AsdRcSlab
                 string reentrantPart = selectedPlot.ReentrantCount > 0
                     ? $" REENTRANT:{selectedPlot.ReentrantCount}" : "";
                 ed.WriteMessage(
-                    $"\nPXIE: Wczytano {piles.Count} pali z {selectedPlot} " +
+                    $"\nPXIE: Loaded {piles.Count} piles from {selectedPlot} " +
                     $"(INT:{selectedPlot.InternalCount} EDGE:{selectedPlot.EdgeCount} " +
-                    $"CORNER:{selectedPlot.CornerCount}{reentrantPart}). Gotowy do Assign PH.\n");
+                    $"CORNER:{selectedPlot.CornerCount}{reentrantPart}). Ready for Assign PH.\n");
                 System.Windows.MessageBox.Show(
-                    $"Wczytano {piles.Count} pali z {selectedPlot}.\nGotowy do Assign PH.",
-                    "Wczytaj Punching", System.Windows.MessageBoxButton.OK,
+                    $"Loaded {piles.Count} piles from {selectedPlot}.\nReady for Assign PH.",
+                    "Load Punching", System.Windows.MessageBoxButton.OK,
                     System.Windows.MessageBoxImage.Information);
             }
             catch (System.Exception ex)
             {
-                ed.WriteMessage($"\nPXIE błąd: {ex.Message}\n");
+                ed.WriteMessage($"\nPXIE error: {ex.Message}\n");
             }
         }
 
@@ -866,8 +866,8 @@ namespace AsdRcSlab
 
             if (SessionData.Piles == null || SessionData.Piles.Count == 0)
             {
-                doc.Editor.WriteMessage("\nPAA: Najpierw użyj 'Wczytaj Punching' (ASD-PXIE).\n");
-                System.Windows.MessageBox.Show("Najpierw wczytaj dane pali przyciskiem 'Wczytaj Punching'.",
+                doc.Editor.WriteMessage("\nPAA: Run 'Load Punching' (ASD-PXIE) first.\n");
+                System.Windows.MessageBox.Show("Load pile data first using 'Load Punching'.",
                     "Assign PH", System.Windows.MessageBoxButton.OK,
                     System.Windows.MessageBoxImage.Warning);
                 return;
@@ -878,7 +878,7 @@ namespace AsdRcSlab
                 PhAssigner.AssignAll(SessionData.Piles);
                 SessionData.PhAssigned = true;
 
-                doc.Editor.WriteMessage($"\nPAA: Przypisano PH dla {SessionData.Piles.Count} pali.\n");
+                doc.Editor.WriteMessage($"\nPAA: PH assigned for {SessionData.Piles.Count} piles.\n");
 
                 // Otwórz dialog z buttonem "Zaktualizuj rysunek" (user decyduje kiedy anotować)
                 var dlg = new PhAssignResultsDialog(SessionData.Piles, showUpdateButton: true);
@@ -887,7 +887,7 @@ namespace AsdRcSlab
             }
             catch (System.Exception ex)
             {
-                doc.Editor.WriteMessage($"\nPAA błąd: {ex.Message}\n");
+                doc.Editor.WriteMessage($"\nPAA error: {ex.Message}\n");
             }
         }
 
@@ -898,8 +898,8 @@ namespace AsdRcSlab
 
             if (!SessionData.PhAssigned || SessionData.Piles == null)
             {
-                doc.Editor.WriteMessage("\nPHR: Najpierw użyj Assign PH.\n");
-                System.Windows.MessageBox.Show("Najpierw wykonaj Assign PH.",
+                doc.Editor.WriteMessage("\nPHR: Run Assign PH first.\n");
+                System.Windows.MessageBox.Show("Run Assign PH first.",
                     "PH Report", System.Windows.MessageBoxButton.OK,
                     System.Windows.MessageBoxImage.Warning);
                 return;
@@ -916,12 +916,12 @@ namespace AsdRcSlab
 
             if (!SessionData.PhAssigned || SessionData.Piles == null)
             {
-                doc.Editor.WriteMessage("\nPHV: Najpierw wykonaj Assign PH.\n");
+                doc.Editor.WriteMessage("\nPHV: Run Assign PH first.\n");
                 return;
             }
 
             var sb = new System.Text.StringBuilder();
-            sb.AppendLine("PHV — WALIDACJA PH:");
+            sb.AppendLine("PHV — PH VALIDATION:");
             sb.AppendLine(new string('-', 40));
 
             // R77: brak EXCEED
@@ -929,21 +929,21 @@ namespace AsdRcSlab
             if (exceed.Any())
                 sb.AppendLine($"R77: FAIL — Util > 100%: {string.Join(", ", exceed.Select(p => p.PileId))}");
             else
-                sb.AppendLine("R77: OK — Brak pali z Util > 100%");
+                sb.AppendLine("R77: OK — No piles with Util > 100%");
 
             // R79: brak orphan (puste ApplicablePileIds)
             var orphan = SessionData.Piles.Where(p => p.ApplicablePileIds == null || p.ApplicablePileIds.Count == 0).ToList();
             if (orphan.Any())
                 sb.AppendLine($"R79: FAIL — Orphan PH: {string.Join(", ", orphan.Select(p => p.PileId))}");
             else
-                sb.AppendLine("R79: OK — Wszystkie pale mają ApplicablePileIds");
+                sb.AppendLine("R79: OK — All piles have ApplicablePileIds");
 
             // R27: duplikaty PileId
             var dupes = SessionData.Piles.GroupBy(p => p.PileId).Where(g => g.Count() > 1).Select(g => g.Key).ToList();
             if (dupes.Any())
                 sb.AppendLine($"R27: FAIL — Duplikaty: {string.Join(", ", dupes)}");
             else
-                sb.AppendLine("R27: OK — Brak duplikatów Pile ID");
+                sb.AppendLine("R27: OK — No duplicate Pile IDs");
 
             doc.Editor.WriteMessage($"\n{sb}\n");
             System.Windows.MessageBox.Show(sb.ToString(), "Waliduj PH",
@@ -1757,7 +1757,7 @@ namespace AsdRcSlab
 
             if (layoutData.Count < 2)
             {
-                ed.WriteMessage($"\nRCN-REFS: za mało layoutów ({layoutData.Count}), brak ramek do wstawienia.");
+                ed.WriteMessage($"\nRCN-REFS: not enough layouts ({layoutData.Count}), no frames to insert.");
                 return 0;
             }
 

@@ -40,7 +40,7 @@
         </Border>
 
         <!-- ZAKLADY NOTE 16 -->
-        <TextBlock Text="ZAKŁADY (NOTE 16 — HARDCODED)" FontWeight="Bold" FontSize="11" Foreground="#555"
+        <TextBlock Text="LAP LENGTHS (NOTE 16 — HARDCODED)" FontWeight="Bold" FontSize="11" Foreground="#555"
                    Margin="0,0,0,4"/>
         <Border BorderBrush="#CCCCCC" BorderThickness="1" CornerRadius="3" Margin="0,0,0,10">
             <Grid Margin="8">
@@ -53,11 +53,11 @@
                     <RowDefinition Height="26"/>
                     <RowDefinition Height="26"/>
                 </Grid.RowDefinitions>
-                <TextBlock Grid.Row="0" Grid.Column="0" Text="Zakład H10" VerticalAlignment="Center" FontSize="12"/>
+                <TextBlock Grid.Row="0" Grid.Column="0" Text="Lap H10" VerticalAlignment="Center" FontSize="12"/>
                 <TextBlock Grid.Row="0" Grid.Column="1" Text="400 mm" VerticalAlignment="Center" FontSize="12" FontWeight="SemiBold" HorizontalAlignment="Right"/>
-                <TextBlock Grid.Row="1" Grid.Column="0" Text="Zakład H12" VerticalAlignment="Center" FontSize="12"/>
+                <TextBlock Grid.Row="1" Grid.Column="0" Text="Lap H12" VerticalAlignment="Center" FontSize="12"/>
                 <TextBlock Grid.Row="1" Grid.Column="1" Text="500 mm" VerticalAlignment="Center" FontSize="12" FontWeight="SemiBold" HorizontalAlignment="Right"/>
-                <TextBlock Grid.Row="2" Grid.Column="0" Text="Zakład H16" VerticalAlignment="Center" FontSize="12"/>
+                <TextBlock Grid.Row="2" Grid.Column="0" Text="Lap H16" VerticalAlignment="Center" FontSize="12"/>
                 <TextBlock Grid.Row="2" Grid.Column="1" Text="650 mm" VerticalAlignment="Center" FontSize="12" FontWeight="SemiBold" HorizontalAlignment="Right"/>
             </Grid>
         </Border>
@@ -95,14 +95,14 @@
                     <RowDefinition Height="26"/>
                     <RowDefinition Height="26"/>
                 </Grid.RowDefinitions>
-                <TextBlock Grid.Row="0" Grid.Column="0" Text="Średnica pala" VerticalAlignment="Center" FontSize="12"/>
+                <TextBlock Grid.Row="0" Grid.Column="0" Text="Pile diameter" VerticalAlignment="Center" FontSize="12"/>
                 <TextBlock Grid.Row="0" Grid.Column="1" Text="Ø300 mm" VerticalAlignment="Center" FontSize="12" FontWeight="SemiBold" HorizontalAlignment="Right"/>
                 <TextBlock Grid.Row="1" Grid.Column="0" Text="k_spring" VerticalAlignment="Center" FontSize="12"/>
                 <TextBlock Grid.Row="1" Grid.Column="1" Text="212 333 kN/m" VerticalAlignment="Center" FontSize="12" FontWeight="SemiBold" HorizontalAlignment="Right"/>
             </Grid>
         </Border>
 
-        <Button Content="Zamknij" Width="80" Height="28" HorizontalAlignment="Right"
+        <Button Content="Close" Width="80" Height="28" HorizontalAlignment="Right"
                 Click="BtnClose_Click" Background="#1565C0" Foreground="White" BorderThickness="0"/>
     </StackPanel>
 </Window>

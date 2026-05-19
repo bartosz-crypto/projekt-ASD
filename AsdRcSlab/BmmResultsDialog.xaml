@@ -1,7 +1,7 @@
 <Window x:Class="AsdRcSlab.BmmResultsDialog"
         xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
-        Title="Oznacz Pręty — Wyniki walidacji BBS"
+        Title="BBS Validation Results"
         Width="520" Height="380"
         WindowStartupLocation="CenterScreen"
         Background="#F5F5F5">
@@ -54,7 +54,7 @@
             <Button Content="Kopiuj raport" Width="100" Height="28" Margin="0,0,8,0"
                     Click="BtnCopy_Click"
                     Background="#1565C0" Foreground="White" BorderThickness="0"/>
-            <Button Content="Zamknij" Width="80" Height="28"
+            <Button Content="Close" Width="80" Height="28"
                     Click="BtnClose_Click"
                     Background="#757575" Foreground="White" BorderThickness="0"/>
         </StackPanel>

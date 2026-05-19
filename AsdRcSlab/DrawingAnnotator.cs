@@ -40,8 +40,8 @@ namespace AsdRcSlab
             if (!CheckSpeeddeckTitle(db))
             {
                 result.WrongDrawing = true;
-                result.Log = "Rysunek nie zawiera tytułu 'SPEEDECK PILED RAFT FOUNDATION'.\n" +
-                             "Upewnij się, że aktywny dokument to właściwy rysunek zbrojenia.";
+                result.Log = "Drawing does not contain the title 'SPEEDECK PILED RAFT FOUNDATION'.\n" +
+                             "Make sure the active document is the correct reinforcement drawing.";
                 return result;
             }
 
@@ -110,7 +110,7 @@ namespace AsdRcSlab
                         .FirstOrDefault();
                     if (nearCircle.Radius > 0 && sample.Height > 0)
                         detectedHeightFactor = sample.Height / nearCircle.Radius;
-                    result.Log += $"Wykryto istniejący styl PH: warstwa={detectedLayer}, styl={detectedStyle}\n";
+                    result.Log += $"Existing PH style detected: layer={detectedLayer}, style={detectedStyle}\n";
                 }
 
                 // Ensure annotation layers and text style exist
@@ -334,8 +334,8 @@ namespace AsdRcSlab
                 }
             }
 
-            log.AppendLine($"AnnotatePhDetailLabels: zaktualizowano {updatedCount}, pominięto " +
-                           $"{skippedNoPh} (brak PH w treści).");
+            log.AppendLine($"AnnotatePhDetailLabels: updated {updatedCount}, skipped " +
+                           $"{skippedNoPh} (no PH in content).");
             return (updatedCount, unusedMarked);
         }
 
@@ -497,11 +497,11 @@ namespace AsdRcSlab
         private static string BuildLog(AnnotationResult r)
         {
             var sb = new System.Text.StringBuilder();
-            sb.AppendLine($"Podpisano: {r.Annotated.Count} | Pominięto NO ACTION: {r.Skipped.Count} | Nie znaleziono: {r.NotFound.Count}");
+            sb.AppendLine($"Labelled: {r.Annotated.Count} | Skipped NO ACTION: {r.Skipped.Count} | Not found: {r.NotFound.Count}");
             if (r.NotFound.Count > 0)
-                sb.AppendLine($"Nie znaleziono: {string.Join(", ", r.NotFound)}");
+                sb.AppendLine($"Not found: {string.Join(", ", r.NotFound)}");
             if (r.UnusedMarked > 0)
-                sb.AppendLine($"Nieużywanych detali (krzyż): {r.UnusedMarked}");
+                sb.AppendLine($"Unused details (cross): {r.UnusedMarked}");
             return sb.ToString();
         }
     }

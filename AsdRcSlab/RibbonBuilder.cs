@@ -27,16 +27,16 @@ namespace AsdRcSlab
                 Id = "ASD_RC_SLAB_TAB"
             };
 
-            tab.Panels.Add(CreatePanel("TABELKA TYTULOWA",
+            tab.Panels.Add(CreatePanel("TITLE BLOCK",
                 new[] {
-                    ("Opisz z GA",      "ASD-GAI", "Import atrybutow z GA do tabelek tytulowych RC"),
-                    ("Nazwy Rysunkow",  "ASD-RCN", "Auto-wypelnienie TITLE_3, SCALE, DATE + rename layoutow")
+                    ("Copy from GA",      "ASD-GAI", "Import attributes from GA to RC title blocks"),
+                    ("Sheet Numbering",   "ASD-RCN", "Auto-fill TITLE_3, SCALE, DATE + rename layouts")
                 }, columnsPerRow: 1));
 
             tab.Panels.Add(CreatePanel("PH CONDITIONS",
                 new[] {
-                    ("Wczytaj Punching", "ASD-PXIE", "Import PUNCHING_NEW_TEMPLATE_v2.xlsx"),
-                    ("Assign PH",        "ASD-PAA",  "Przypisuje PH1-PH9 i generuje tytuly detali"),
+                    ("Load Punching", "ASD-PXIE", "Import PUNCHING_NEW_TEMPLATE_v2.xlsx"),
+                    ("Assign PH",     "ASD-PAA",  "Assigns PH1-PH9 and generates detail titles"),
                     ("PH Report",        "ASD-PHR",  "Generuje PH_Report.xlsx"),
                     ("Waliduj PH",       "ASD-PHV",  "Sprawdza R77, R79, duplikaty")
                 }, columnsPerRow: 2));

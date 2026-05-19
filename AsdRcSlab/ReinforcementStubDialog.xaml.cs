@@ -31,8 +31,8 @@ namespace AsdRcSlab
                 System.Globalization.CultureInfo.InvariantCulture,
                 out double area) || area <= 0)
             {
-                MessageBox.Show("Podaj poprawną powierzchnię płyty (m²).",
-                    "Błąd", MessageBoxButton.OK, MessageBoxImage.Warning);
+                MessageBox.Show("Enter a valid slab area (m²).",
+                    "Error", MessageBoxButton.OK, MessageBoxImage.Warning);
                 return;
             }
 

@@ -125,7 +125,7 @@ namespace AsdRcSlab
 
             if (!marks.Any())
                 return new BmmRuleResult { RuleId = "R87", Status = "WARN",
-                    Details = "Brak numerycznych oznaczeń prętów — sprawdź format kolumny Mark." };
+                    Details = "No numeric bar marks found — check Mark column format." };
 
             var gaps = new List<string>();
             for (int i = marks[0]; i <= marks[marks.Count - 1]; i++)
@@ -134,7 +134,7 @@ namespace AsdRcSlab
 
             if (!gaps.Any())
                 return new BmmRuleResult { RuleId = "R87", Status = "OK",
-                    Details = $"Brak luk. Pręty {marks.First():D2}–{marks.Last():D2} ({marks.Count} szt.)" };
+                    Details = $"No gaps. Bars {marks.First():D2}–{marks.Last():D2} ({marks.Count} pcs.)" };
 
             return new BmmRuleResult { RuleId = "R87", Status = "FAIL",
                 Details = $"Luki w numeracji — brakuje nr: {string.Join(", ", gaps)}" };
@@ -162,7 +162,7 @@ namespace AsdRcSlab
 
             if (!fails.Any())
                 return new BmmRuleResult { RuleId = ruleId, Status = "OK",
-                    Details = $"{label}: wszystkie pręty ≥ H{minDia}." };
+                    Details = $"{label}: all bars ≥ H{minDia}." };
 
             return new BmmRuleResult { RuleId = ruleId, Status = "FAIL",
                 Details = $"{label} min Ø H{minDia} — niezgodne: {string.Join(", ", fails)}" };
@@ -173,10 +173,10 @@ namespace AsdRcSlab
             int noType = rows.Count(r => string.IsNullOrEmpty(r.TypeRaw));
             if (noType > rows.Count / 2)
                 return new BmmRuleResult { RuleId = "R92", Status = "WARN",
-                    Details = $"Brak danych Type dla {noType} prętów — nie można wyliczyć masy." };
+                    Details = $"No Type data for {noType} bars — cannot calculate weight." };
 
             return new BmmRuleResult { RuleId = "R92", Status = "OK",
-                Details = "Kolumna Type wypełniona — waga weryfikowalna." };
+                Details = "Type column filled — weight verifiable." };
         }
 
         private static int ParseDia(string type)
