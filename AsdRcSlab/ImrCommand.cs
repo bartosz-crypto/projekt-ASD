@@ -4,6 +4,7 @@ using System.IO;
 using System.Linq;
 using System.Text.RegularExpressions;
 using Autodesk.AutoCAD.DatabaseServices;
+using Autodesk.AutoCAD.EditorInput;
 using Autodesk.AutoCAD.Geometry;
 using Autodesk.AutoCAD.Runtime;
 using AcApp = Autodesk.AutoCAD.ApplicationServices.Application;
@@ -61,7 +62,8 @@ namespace AsdRcSlab
                     if (isDxf) sideDb.DxfIn(path, null);
                     else       sideDb.ReadDwgFile(path, FileShare.Read, true, "");
 
-                    plots = ScanReinforcementMaps(sideDb);
+                    ed.WriteMessage($"\n[ASD-IMR] Source file: {path}");
+                    plots = ScanReinforcementMaps(sideDb, ed);
                 }
             }
             catch (System.Exception ex)
@@ -110,7 +112,7 @@ namespace AsdRcSlab
 
         // ── Scan helpers ──────────────────────────────────────────────────────
 
-        private List<PlotMapInfo> ScanReinforcementMaps(Database sideDb)
+        private List<PlotMapInfo> ScanReinforcementMaps(Database sideDb, Editor ed)
         {
             var plots = new List<PlotMapInfo>();
 
@@ -118,6 +120,36 @@ namespace AsdRcSlab
             {
                 var bt = (BlockTable)tr.GetObject(sideDb.BlockTableId, OpenMode.ForRead);
                 var ms = (BlockTableRecord)tr.GetObject(bt[BlockTableRecord.ModelSpace], OpenMode.ForRead);
+
+                // === DIAG: count all entities ===
+                int totalEnts = 0, totalMText = 0, totalPolyline = 0;
+                var mtextLayers = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
+                var polylineLayers = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
+                foreach (ObjectId id in ms)
+                {
+                    totalEnts++;
+                    var ent = tr.GetObject(id, OpenMode.ForRead) as Entity;
+                    if (ent == null) continue;
+                    if (ent is MText)
+                    {
+                        totalMText++;
+                        mtextLayers.TryGetValue(ent.Layer, out int c1);
+                        mtextLayers[ent.Layer] = c1 + 1;
+                    }
+                    if (ent is Autodesk.AutoCAD.DatabaseServices.Polyline)
+                    {
+                        totalPolyline++;
+                        polylineLayers.TryGetValue(ent.Layer, out int c2);
+                        polylineLayers[ent.Layer] = c2 + 1;
+                    }
+                }
+                ed.WriteMessage($"\n[ASD-IMR DIAG] ModelSpace: {totalEnts} entities ({totalMText} MText, {totalPolyline} Polyline)");
+                ed.WriteMessage("\n[ASD-IMR DIAG] MText layers (top 15):");
+                foreach (var kv in mtextLayers.OrderByDescending(x => x.Value).Take(15))
+                    ed.WriteMessage($"\n    {kv.Key}: {kv.Value}");
+                ed.WriteMessage("\n[ASD-IMR DIAG] Polyline layers (top 15):");
+                foreach (var kv in polylineLayers.OrderByDescending(x => x.Value).Take(15))
+                    ed.WriteMessage($"\n    {kv.Key}: {kv.Value}");
 
                 // 1. Find headers — MTEXT on PH-SLAB-HEADER
                 var headers = new List<(Point3d Pos, string Label)>();
@@ -133,12 +165,15 @@ namespace AsdRcSlab
                             headers.Add((mt.Location, label));
                     }
                 }
+                ed.WriteMessage($"\n[ASD-IMR DIAG] Headers on PH-SLAB-HEADER: {headers.Count}");
+                for (int i = 0; i < Math.Min(headers.Count, 10); i++)
+                    ed.WriteMessage($"\n    [{i}] X={headers[i].Pos.X:F1} Y={headers[i].Pos.Y:F1}  label=\"{headers[i].Label}\"");
 
                 // 2. Find PH-FRAME polylines
                 var frames = new List<FrameBbox>();
                 foreach (ObjectId id in ms)
                 {
-                    var pl = tr.GetObject(id, OpenMode.ForRead) as Polyline;
+                    var pl = tr.GetObject(id, OpenMode.ForRead) as Autodesk.AutoCAD.DatabaseServices.Polyline;
                     if (pl == null) continue;
                     if (!string.Equals(pl.Layer, "PH-FRAME", StringComparison.OrdinalIgnoreCase)) continue;
                     Extents3d ext;
@@ -153,6 +188,9 @@ namespace AsdRcSlab
                         FrameId = id
                     });
                 }
+                ed.WriteMessage($"\n[ASD-IMR DIAG] Frames on PH-FRAME: {frames.Count}");
+                for (int i = 0; i < Math.Min(frames.Count, 5); i++)
+                    ed.WriteMessage($"\n    [{i}] X=[{frames[i].Xmin:F1}..{frames[i].Xmax:F1}] Y=[{frames[i].Ymin:F1}..{frames[i].Ymax:F1}]");
 
                 // 3. Group frames into columns by Xmin (tolerance 10 units)
                 const double colTol = 10.0;
@@ -163,21 +201,35 @@ namespace AsdRcSlab
                     if (existing != null) existing.Add(f);
                     else columns.Add(new List<FrameBbox> { f });
                 }
+                ed.WriteMessage($"\n[ASD-IMR DIAG] Columns of frames: {columns.Count}");
+                for (int i = 0; i < columns.Count; i++)
+                    ed.WriteMessage($"\n    Col[{i}] X=[{columns[i][0].Xmin:F1}..{columns[i][0].Xmax:F1}] frames={columns[i].Count}");
 
                 // 4. Match each header to a column, then identify T1/T2/B1/B2
+                int matchedPlots = 0, skippedNoCol = 0, skippedNoTitle = 0;
                 foreach (var header in headers)
                 {
                     var col = columns.FirstOrDefault(c =>
                         header.Pos.X >= c[0].Xmin - 500.0 &&
                         header.Pos.X <= c[0].Xmax);
-                    if (col == null || col.Count < 4) continue;
+                    if (col == null || col.Count < 4)
+                    {
+                        skippedNoCol++;
+                        ed.WriteMessage($"\n[ASD-IMR DIAG] Header \"{header.Label}\" (X={header.Pos.X:F1}) → NO COLUMN MATCH");
+                        continue;
+                    }
 
                     var t1 = FindFrameWithTitleLayer(col, ms, tr, "PH-T1-TITLE");
                     var t2 = FindFrameWithTitleLayer(col, ms, tr, "PH-T2-TITLE");
                     var b1 = FindFrameWithTitleLayer(col, ms, tr, "PH-B1-TITLE");
                     var b2 = FindFrameWithTitleLayer(col, ms, tr, "PH-B2-TITLE");
+                    ed.WriteMessage($"\n[ASD-IMR DIAG] Header \"{header.Label}\" (X={header.Pos.X:F1}) → col with {col.Count} frames; T1={t1 != null} T2={t2 != null} B1={b1 != null} B2={b2 != null}");
 
-                    if (t1 == null || t2 == null || b1 == null || b2 == null) continue;
+                    if (t1 == null || t2 == null || b1 == null || b2 == null)
+                    {
+                        skippedNoTitle++;
+                        continue;
+                    }
 
                     plots.Add(new PlotMapInfo
                     {
@@ -188,7 +240,9 @@ namespace AsdRcSlab
                         B2             = b2,
                         ReferencePoint = new Point3d(t1.Xmin, t1.Ymax, 0)
                     });
+                    matchedPlots++;
                 }
+                ed.WriteMessage($"\n[ASD-IMR DIAG] Summary: matched={matchedPlots}, skipped (no col)={skippedNoCol}, skipped (no title)={skippedNoTitle}");
 
                 tr.Commit();
             }
