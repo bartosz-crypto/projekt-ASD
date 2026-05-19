@@ -98,6 +98,20 @@ namespace AsdRcSlab
             @"(CONCRETE\s+VOLUME\s*=\s*)[^\\]*",
             RegexOptions.IgnoreCase);
 
+        // Universal fallback — brak wymagania unit suffix; lookahead na \P, text suffix, lub koniec
+        private static readonly Regex SlabAreaUniversalRx = new Regex(
+            @"(SLAB\s+AREA\s*=\s*)(?:[^\\]|\\[A-Za-z][^;\\]*;)*?(?=\\P|$)",
+            RegexOptions.IgnoreCase);
+        private static readonly Regex SlabPerimeterUniversalRx = new Regex(
+            @"(SLAB\s+PERIMETER\s*=\s*)(?:[^\\]|\\[A-Za-z][^;\\]*;)*?(?=\\P|$)",
+            RegexOptions.IgnoreCase);
+        private static readonly Regex SlabThicknessUniversalRx = new Regex(
+            @"(SLAB\s+THICKNESS\s*=\s*)(?:[^\\]|\\[A-Za-z][^;\\]*;)*?(?=\\P|\s+U\.N\.O\.|$)",
+            RegexOptions.IgnoreCase);
+        private static readonly Regex ConcreteVolumeUniversalRx = new Regex(
+            @"(CONCRETE\s+VOLUME\s*=\s*)(?:[^\\]|\\[A-Za-z][^;\\]*;)*?(?=\\P|\s+PILE\s+CAP\s+INC\.|$)",
+            RegexOptions.IgnoreCase);
+
         // CONCRETE TO BE DESIGNATED block — od frazy do "CERTIFICATE." (włącznie z kropką)
         private static readonly Regex ConcreteDesignatedBlockRx = new Regex(
             @"CONCRETE\s+TO\s+BE\s+DESIGNATED.*?CERTIFICATE\s*\.",
@@ -1501,21 +1515,36 @@ namespace AsdRcSlab
                         string vVolRaw  = values.TryGetValue(KeyConcreteVolumeRaw, out var vr)  && !string.IsNullOrEmpty(vr)  ? vr  : null;
 
                         if (vArea != null)
+                        {
+                            string before = newContents;
                             newContents = SlabAreaReplaceRx.Replace(newContents, "${1}" + vArea + "${3}");
+                            if (newContents == before)
+                                newContents = SlabAreaUniversalRx.Replace(newContents, "${1}" + vArea + " m");
+                        }
                         else if (vAreaRaw != null)
                             newContents = SlabAreaRawReplaceRx.Replace(newContents, "${1}" + vAreaRaw);
                         else
                             newContents = SlabAreaReplaceRx.Replace(newContents, "${1}");
 
                         if (vPer != null)
+                        {
+                            string before = newContents;
                             newContents = SlabPerimeterReplaceRx.Replace(newContents, "${1}" + vPer + "${3}");
+                            if (newContents == before)
+                                newContents = SlabPerimeterUniversalRx.Replace(newContents, "${1}" + vPer + " m");
+                        }
                         else if (vPerRaw != null)
                             newContents = SlabPerimeterRawReplaceRx.Replace(newContents, "${1}" + vPerRaw);
                         else
                             newContents = SlabPerimeterReplaceRx.Replace(newContents, "${1}");
 
                         if (vTh != null)
+                        {
+                            string before = newContents;
                             newContents = SlabThicknessReplaceRx.Replace(newContents, "${1}" + vTh + "${3}");
+                            if (newContents == before)
+                                newContents = SlabThicknessUniversalRx.Replace(newContents, "${1}" + vTh + " mm");
+                        }
                         else if (vThRaw != null)
                             newContents = SlabThicknessRawReplaceRx.Replace(newContents, "${1}" + vThRaw);
                         else
@@ -1523,7 +1552,12 @@ namespace AsdRcSlab
 
                         // CONCRETE VOLUME — podmień tylko liczbę; m³ codes z RC zachowane, tail wycinany
                         if (vVol != null)
+                        {
+                            string before = newContents;
                             newContents = ConcreteVolumeReplaceRx.Replace(newContents, m => m.Groups[1].Value + vVol + m.Groups[3].Value);
+                            if (newContents == before)
+                                newContents = ConcreteVolumeUniversalRx.Replace(newContents, "${1}" + vVol + " m³");
+                        }
                         else if (vVolRaw != null)
                             newContents = ConcreteVolumeRawReplaceRx.Replace(newContents, "${1}" + vVolRaw);
                         else
