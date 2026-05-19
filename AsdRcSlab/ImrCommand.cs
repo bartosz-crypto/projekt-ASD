@@ -285,10 +285,18 @@ namespace AsdRcSlab
                 var ent = tr.GetObject(id, OpenMode.ForRead) as Entity;
                 if (ent == null) continue;
                 if (!string.Equals(ent.Layer, titleLayer, StringComparison.OrdinalIgnoreCase)) continue;
-                if (!(ent is MText mt)) continue;
+
+                // Akceptuj zarówno MText jak i DBText (single-line TEXT)
+                Point3d p;
+                if (ent is MText mt)
+                    p = mt.Location;
+                else if (ent is DBText dbtxt)
+                    p = dbtxt.Position;
+                else
+                    continue;
+
                 totalOnLayer++;
 
-                Point3d p = mt.Location;
                 var frame = column.FirstOrDefault(f =>
                     p.X >= f.Xmin && p.X <= f.Xmax &&
                     p.Y >= f.Ymin && p.Y <= f.Ymax);
@@ -314,8 +322,12 @@ namespace AsdRcSlab
             int pIdx = contents.IndexOf(@"\P", StringComparison.Ordinal);
             string firstPara = pIdx >= 0 ? contents.Substring(0, pIdx) : contents;
 
-            string clean = Regex.Replace(firstPara, @"\\[A-Za-z][^\\;]*;?", "");
-            clean = clean.Replace(@"\L", "").Replace(@"\l", "");
+            // Krok 1: tagi z parametrami zakończone ; (np. \C5;  \H1.5x;  \fArial|b0|i0|c0|p34;)
+            string clean = Regex.Replace(firstPara, @"\\[A-Za-z][^;\\]*;", "");
+
+            // Krok 2: tagi bez parametrów — backslash + jedna litera (np. \L \l \O \o)
+            clean = Regex.Replace(clean, @"\\[A-Za-z]", "");
+
             clean = clean.Replace("{", "").Replace("}", "");
 
             return clean.Trim();
