@@ -90,6 +90,47 @@ namespace AsdRcSlab
                 }
 
                 if (current != null) current.EndRow = lastRow;
+
+                // FALLBACK: brak PLOT N headers → traktuj cały arkusz jako 1 plot
+                if (plots.Count == 0)
+                {
+                    int intCnt = 0, edgeCnt = 0, cornerCnt = 0, reentrantCnt = 0;
+                    for (int r = 1; r <= lastRow; r++)
+                    {
+                        string c1f = ws.Cells[r, ColPileId].GetValue<string>()?.Trim() ?? "";
+                        if (string.IsNullOrEmpty(c1f)) continue;
+                        var sm = _sectionRx.Match(c1f);
+                        if (!sm.Success) continue;
+                        int cnt = int.TryParse(sm.Groups[2].Value, out int n) ? n : 0;
+                        switch (sm.Groups[1].Value.ToUpperInvariant())
+                        {
+                            case "INTERNAL":  intCnt       += cnt; break;
+                            case "EDGE":      edgeCnt      += cnt; break;
+                            case "CORNER":    cornerCnt    += cnt; break;
+                            case "REENTRANT": reentrantCnt += cnt; break;
+                        }
+                    }
+                    int totalPiles = intCnt + edgeCnt + cornerCnt + reentrantCnt;
+                    if (totalPiles > 0)
+                    {
+                        plots.Add(new PlotInfo
+                        {
+                            RawHeader       = "SYNTHETIC (no PLOT N header)",
+                            FirstPlotNumber = 1,
+                            LastPlotNumber  = 1,
+                            PileCount       = totalPiles,
+                            StartRow        = 1,
+                            EndRow          = lastRow,
+                            InternalCount   = intCnt,
+                            EdgeCount       = edgeCnt,
+                            CornerCount     = cornerCnt,
+                            ReentrantCount  = reentrantCnt
+                        });
+                        sb.AppendLine($"FALLBACK: brak nagłówków PLOT N — syntetyczny PLOT 1: {totalPiles} pali " +
+                                      $"(INT:{intCnt} EDGE:{edgeCnt} CORNER:{cornerCnt} REENTRANT:{reentrantCnt}).");
+                    }
+                }
+
                 sb.AppendLine($"ScanPlots: znaleziono {plots.Count} plot(ów).");
             }
 
