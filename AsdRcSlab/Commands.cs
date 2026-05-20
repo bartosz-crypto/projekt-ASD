@@ -249,6 +249,7 @@ namespace AsdRcSlab
             // 4. Otwórz GA drugi raz dla SLAB values (MText na PCN-Text) + first GA number
             var gaSlabValues = new Dictionary<string, string>();
             int? firstGaNumber = null;
+            int firstGaSuffixWidth = 0;
             try
             {
                 using (var sideDb = new Database(false, true))
@@ -261,7 +262,7 @@ namespace AsdRcSlab
 
                     try
                     {
-                        firstGaNumber = ExtractFirstGaDrawingNumber(sideDb);
+                        firstGaNumber = ExtractFirstGaDrawingNumber(sideDb, out firstGaSuffixWidth);
                     }
                     catch (System.Exception ex)
                     {
@@ -317,7 +318,12 @@ namespace AsdRcSlab
             {
                 string startInfo;
                 if (firstGaNumber.HasValue)
-                    startInfo = $"Starting from GA: GA{firstGaNumber.Value} → RC{firstGaNumber.Value}, RC{firstGaNumber.Value + 1}, ...";
+                {
+                    string fmt = firstGaSuffixWidth > 0 ? $"D{firstGaSuffixWidth}" : "";
+                    string n0  = firstGaSuffixWidth > 0 ? firstGaNumber.Value.ToString(fmt) : firstGaNumber.Value.ToString();
+                    string n1  = firstGaSuffixWidth > 0 ? (firstGaNumber.Value + 1).ToString(fmt) : (firstGaNumber.Value + 1).ToString();
+                    startInfo = $"Starting from GA: GA{n0} → RC{n0}, RC{n1}, ...";
+                }
                 else if (plotNumberFromGa.HasValue)
                     startInfo = $"Plot {plotNumberFromGa.Value} (from TITLE_1 prefix, fallback)";
                 else
@@ -341,7 +347,7 @@ namespace AsdRcSlab
 
                 for (int i = 0; i < rcLayoutNames.Count; i++)
                 {
-                    string suffix = BuildDrawingSuffix(plotNumberFromGa, i, firstGaNumber);
+                    string suffix = BuildDrawingSuffix(plotNumberFromGa, i, firstGaNumber, firstGaSuffixWidth);
                     sb.AppendLine($"  {rcLayoutNames[i]} → {gaDrawingPrefix}-{suffix}");
                 }
             }
@@ -392,7 +398,7 @@ namespace AsdRcSlab
             {
                 updatedAttrLayouts = ApplyA1BLAttributesToActiveDb(
                     db, srcAttrs, GaiFieldsToCopy,
-                    gaTitlePrefix, gaDrawingPrefix, plotNumberFromGa, firstGaNumber);
+                    gaTitlePrefix, gaDrawingPrefix, plotNumberFromGa, firstGaNumber, firstGaSuffixWidth);
             }
             catch (System.Exception ex)
             {
@@ -1316,8 +1322,9 @@ namespace AsdRcSlab
             return renamed;
         }
 
-        private static int? ExtractFirstGaDrawingNumber(Database gaDb)
+        private static int? ExtractFirstGaDrawingNumber(Database gaDb, out int suffixWidth)
         {
+            suffixWidth = 0;
             var layoutNames = new List<string>();
             var drawingNumbers = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
 
@@ -1373,16 +1380,22 @@ namespace AsdRcSlab
             var m = GaSuffixNumberRx.Match(suffix);
             if (!m.Success) return null;
 
-            if (int.TryParse(m.Groups[1].Value, out int num)) return num;
+            string digitStr = m.Groups[1].Value;
+            if (int.TryParse(digitStr, out int num))
+            {
+                suffixWidth = digitStr.Length;
+                return num;
+            }
             return null;
         }
 
-        private static string BuildDrawingSuffix(int? plotNumber, int layoutIdx0Based, int? firstGaNumber = null)
+        private static string BuildDrawingSuffix(int? plotNumber, int layoutIdx0Based, int? firstGaNumber = null, int padWidth = 0)
         {
             if (firstGaNumber.HasValue)
             {
                 int num = firstGaNumber.Value + layoutIdx0Based;
-                return "RC" + num.ToString();
+                string numStr = padWidth > 0 ? num.ToString($"D{padWidth}") : num.ToString();
+                return "RC" + numStr;
             }
             if (plotNumber.HasValue)
             {
@@ -1664,7 +1677,8 @@ namespace AsdRcSlab
             string gaTitlePrefix,
             string gaDrawingPrefix,
             int? plotNumberFromGa,
-            int? firstGaNumber = null)
+            int? firstGaNumber = null,
+            int firstGaSuffixWidth = 0)
         {
             int updatedLayouts = 0;
             var tagsSet = new HashSet<string>(tagsToCopy, StringComparer.OrdinalIgnoreCase);
@@ -1724,7 +1738,7 @@ namespace AsdRcSlab
                             else if (!string.IsNullOrEmpty(gaDrawingPrefix) &&
                                      string.Equals(att.Tag, "DRAWING_NUMBER", StringComparison.OrdinalIgnoreCase))
                             {
-                                string suffix = BuildDrawingSuffix(currentLayoutPlot, currentLayoutIdx, firstGaNumber);
+                                string suffix = BuildDrawingSuffix(currentLayoutPlot, currentLayoutIdx, firstGaNumber, firstGaSuffixWidth);
                                 newVal = gaDrawingPrefix + "-" + suffix;
                             }
                             // Standardowa obsługa CLIENT_* / PROJ_*
