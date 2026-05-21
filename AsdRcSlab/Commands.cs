@@ -2173,5 +2173,55 @@ namespace AsdRcSlab
             var doc = AcApp.DocumentManager.MdiActiveDocument;
             doc.Editor.WriteMessage("\nTODO: Transmittal — lista PDF do wyslania\n");
         }
+
+        [CommandMethod("ASD-BBC-TEST")]
+        public void RunBBSCalculatorTest()
+        {
+            var ed = AcApp.DocumentManager.MdiActiveDocument.Editor;
+            ed.WriteMessage("\n=== BS8666 Calculator PoC test ===");
+
+            // Bar 1: H12, code 21, A=665, B=215, C=665
+            // r=2*12=24 | raw=665+215+665-24-2*12=1497 | final=1500
+            var row1 = new BbsBarRow
+            {
+                BarMark = 1, TypeSize = "H12", ShapeCode = 21,
+                A = 665, B = 215, C = 665
+            };
+            AssertBar(ed, "Bar 1 (H12, code 21)", row1, 1497.0, 1500.0);
+
+            // Bar 11: H12, code 0 (straight), raw 3500
+            var row11 = new BbsBarRow
+            {
+                BarMark = 11, TypeSize = "H12", ShapeCode = 0,
+                LengthPerBar = 3500
+            };
+            AssertBar(ed, "Bar 11 (H12, code 0)", row11, 3500.0, 3500.0);
+
+            // Bar 12: H12, code 21, A=1050, B=190, C=1050
+            // raw=1050+190+1050-24-24=2242 | final=2250
+            var row12 = new BbsBarRow
+            {
+                BarMark = 12, TypeSize = "H12", ShapeCode = 21,
+                A = 1050, B = 190, C = 1050
+            };
+            AssertBar(ed, "Bar 12 (H12, code 21)", row12, 2242.0, 2250.0);
+
+            ed.WriteMessage("\n=== koniec ===\n");
+        }
+
+        private static void AssertBar(
+            Autodesk.AutoCAD.EditorInput.Editor ed,
+            string label, BbsBarRow row,
+            double expectedRaw, double expectedFinal)
+        {
+            double raw   = BS8666Calculator.CalculateRawCuttingLength(row);
+            double final = BS8666Calculator.CalculateFinalCuttingLength(row);
+            bool okRaw   = System.Math.Abs(raw   - expectedRaw)   < 0.5;
+            bool okFinal = System.Math.Abs(final - expectedFinal) < 0.5;
+            string status = (okRaw && okFinal) ? "PASS" : "FAIL";
+            ed.WriteMessage(
+                "\n{0}: {1} | raw={2} (exp {3}) | final={4} (exp {5})",
+                status, label, raw, expectedRaw, final, expectedFinal);
+        }
     }
 }
