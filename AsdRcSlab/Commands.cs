@@ -1036,10 +1036,14 @@ namespace AsdRcSlab
         private static string StripMTextFormatCodes(string s)
         {
             if (string.IsNullOrEmpty(s)) return s;
-            s = Regex.Replace(s, @"\{\\[^{}]*;", "");
-            s = s.Replace("{", "").Replace("}", "");
-            s = Regex.Replace(s, @"\\[A-Za-z~]", " ");
-            s = Regex.Replace(s, @"  +", " ").Trim();
+            // Format codes z semicolonem: \H0.8x; \Fromans|c238; itp — replace na spację
+            s = Regex.Replace(s, @"\\[A-Za-z]+[^;{}]*;", " ");
+            // Pojedyncze \X bez semicolona: \P \L \l itp
+            s = Regex.Replace(s, @"\\[A-Za-z]", " ");
+            // Braces na spację (zachowuje word boundaries)
+            s = s.Replace("{", " ").Replace("}", " ");
+            // Collapse whitespace
+            s = Regex.Replace(s, @"\s+", " ").Trim();
             return s;
         }
 
@@ -1091,10 +1095,6 @@ namespace AsdRcSlab
                 }
                 tr.Commit();
             }
-            var _diagEd = AcApp.DocumentManager.MdiActiveDocument?.Editor;
-            _diagEd?.WriteMessage($"\n[RCN DIAG] ScanModelSpaceTexts found {result.Count} matches:");
-            foreach (var (cat, x, y) in result)
-                _diagEd?.WriteMessage($"\n[RCN DIAG]   {cat} @ ({x:F0},{y:F0})");
             return result;
         }
 
@@ -1102,7 +1102,6 @@ namespace AsdRcSlab
         {
             var result = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
             var msTexts = ScanModelSpaceTexts(db);
-            var diagEd = AcApp.DocumentManager.MdiActiveDocument.Editor;
 
             using (var tr = db.TransactionManager.StartTransaction())
             {
@@ -1135,21 +1134,9 @@ namespace AsdRcSlab
                     bool hasPh        = false;
                     bool hasDetail    = false;
 
-                    diagEd.WriteMessage($"\n[RCN DIAG] Layout='{layout.LayoutName}' vp={vpCenters.Count}");
-                    foreach (var vc in vpCenters)
-                        diagEd.WriteMessage($"\n[RCN DIAG]   VP center ({vc.cx:F0},{vc.cy:F0})");
-
-                    diagEd.WriteMessage($"\n[RCN DIAG] Layout '{layout.LayoutName}' msTexts.Count={msTexts.Count}");
                     foreach (var (cat, x, y) in msTexts)
                     {
-                        diagEd.WriteMessage($"\n[RCN DIAG] Loop msText: {cat} @ ({x:F0},{y:F0}) → classifying");
                         if (vpCenters.Count == 0) continue;
-
-                        if (cat == MsTextCategory.Detail || cat == MsTextCategory.MainBottom ||
-                            cat == MsTextCategory.MainTop || cat == MsTextCategory.Section)
-                        {
-                            diagEd.WriteMessage($"\n[RCN DIAG]   {cat} @ ({x:F0},{y:F0}) → classified");
-                        }
 
                         switch (cat)
                         {
