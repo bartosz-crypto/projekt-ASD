@@ -1,4 +1,4 @@
-using Autodesk.AutoCAD.Runtime;
+﻿using Autodesk.AutoCAD.Runtime;
 using Autodesk.AutoCAD.DatabaseServices;
 using Autodesk.AutoCAD.EditorInput;
 using Autodesk.AutoCAD.Geometry;
@@ -139,7 +139,7 @@ namespace AsdRcSlab
             RegexOptions.IgnoreCase);
 
         private static readonly Regex DetailRx = new Regex(
-            @"\bDETAIL\s+['""]?\d+['""]?",
+            @"\bDETAIL\s+\S*\d+",
             RegexOptions.IgnoreCase);
 
         // ── PANEL 1: PROJEKT ──────────────────────────────────────────────────
@@ -1033,6 +1033,16 @@ namespace AsdRcSlab
 
         private enum MsTextCategory { MainBottom, MainTop, Section, Ph, Detail }
 
+        private static string StripMTextFormatCodes(string s)
+        {
+            if (string.IsNullOrEmpty(s)) return s;
+            s = Regex.Replace(s, @"\{\\[^{}]*;", "");
+            s = s.Replace("{", "").Replace("}", "");
+            s = Regex.Replace(s, @"\\[A-Za-z~]", " ");
+            s = Regex.Replace(s, @"  +", " ").Trim();
+            return s;
+        }
+
         private static List<(MsTextCategory cat, double x, double y)> ScanModelSpaceTexts(Database db)
         {
             var result = new List<(MsTextCategory, double, double)>();
@@ -1050,7 +1060,7 @@ namespace AsdRcSlab
                     var ent = tr.GetObject(id, OpenMode.ForRead);
                     if (ent is MText mt)
                     {
-                        content = mt.Contents;
+                        content = StripMTextFormatCodes(mt.Contents);
                         x = mt.Location.X;
                         y = mt.Location.Y;
                     }
@@ -1116,7 +1126,8 @@ namespace AsdRcSlab
                         vpExtents.Add((cx - w / 2, cy - h / 2, cx + w / 2, cy + h / 2));
                     }
 
-                    string mainLayer  = null;
+                    bool hasBottom    = false;
+                    bool hasTop       = false;
                     bool hasSections  = false;
                     bool hasPh        = false;
                     bool hasDetail    = false;
@@ -1128,19 +1139,18 @@ namespace AsdRcSlab
 
                         switch (cat)
                         {
-                            case MsTextCategory.MainBottom:
-                                if (mainLayer == null) mainLayer = "BOTTOM LAYER"; break;
-                            case MsTextCategory.MainTop:
-                                if (mainLayer == null) mainLayer = "TOP LAYER"; break;
-                            case MsTextCategory.Section: hasSections = true; break;
-                            case MsTextCategory.Ph:      hasPh = true;       break;
-                            case MsTextCategory.Detail:  hasDetail = true;   break;
+                            case MsTextCategory.MainBottom: hasBottom   = true; break;
+                            case MsTextCategory.MainTop:    hasTop      = true; break;
+                            case MsTextCategory.Section:    hasSections = true; break;
+                            case MsTextCategory.Ph:         hasPh       = true; break;
+                            case MsTextCategory.Detail:     hasDetail   = true; break;
                         }
                     }
 
-                    // kolejność: main_layer, DETAIL, SECTIONS, PH DETAILS
+                    // kolejność: BOTTOM LAYER, TOP LAYER, DETAIL, SECTIONS, PH DETAILS
                     var parts = new List<string>();
-                    if (mainLayer != null) parts.Add(mainLayer);
+                    if (hasBottom)   parts.Add("BOTTOM LAYER");
+                    if (hasTop)      parts.Add("TOP LAYER");
                     if (hasDetail)   parts.Add("DETAIL");
                     if (hasSections) parts.Add("SECTIONS");
                     if (hasPh)       parts.Add("PH DETAILS");
