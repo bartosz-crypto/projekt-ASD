@@ -1091,6 +1091,10 @@ namespace AsdRcSlab
                 }
                 tr.Commit();
             }
+            var _diagEd = AcApp.DocumentManager.MdiActiveDocument?.Editor;
+            _diagEd?.WriteMessage($"\n[RCN DIAG] ScanModelSpaceTexts found {result.Count} matches:");
+            foreach (var (cat, x, y) in result)
+                _diagEd?.WriteMessage($"\n[RCN DIAG]   {cat} @ ({x:F0},{y:F0})");
             return result;
         }
 
@@ -1135,8 +1139,10 @@ namespace AsdRcSlab
                     foreach (var vc in vpCenters)
                         diagEd.WriteMessage($"\n[RCN DIAG]   VP center ({vc.cx:F0},{vc.cy:F0})");
 
+                    diagEd.WriteMessage($"\n[RCN DIAG] Layout '{layout.LayoutName}' msTexts.Count={msTexts.Count}");
                     foreach (var (cat, x, y) in msTexts)
                     {
+                        diagEd.WriteMessage($"\n[RCN DIAG] Loop msText: {cat} @ ({x:F0},{y:F0}) → classifying");
                         if (vpCenters.Count == 0) continue;
 
                         if (cat == MsTextCategory.Detail || cat == MsTextCategory.MainBottom ||
