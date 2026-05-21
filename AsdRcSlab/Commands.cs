@@ -1114,7 +1114,7 @@ namespace AsdRcSlab
                         continue;
 
                     var btr = (BlockTableRecord)tr.GetObject(layout.BlockTableRecordId, OpenMode.ForRead);
-                    var vpCenters = new List<(double cx, double cy)>();
+                    var vpExtents = new List<(double xMin, double yMin, double xMax, double yMax)>();
                     int vpIdx = 0;
                     foreach (ObjectId id in btr)
                     {
@@ -1125,7 +1125,10 @@ namespace AsdRcSlab
 
                         double cx = vp.ViewCenter.X;
                         double cy = vp.ViewCenter.Y;
-                        vpCenters.Add((cx, cy));
+                        double vh = vp.ViewHeight;
+                        double aspect = (vp.Height > 0) ? (vp.Width / vp.Height) : 1.0;
+                        double vw = vh * aspect;
+                        vpExtents.Add((cx - vw / 2, cy - vh / 2, cx + vw / 2, cy + vh / 2 + 2 * vh));
                     }
 
                     bool hasBottom    = false;
@@ -1136,7 +1139,8 @@ namespace AsdRcSlab
 
                     foreach (var (cat, x, y) in msTexts)
                     {
-                        if (vpCenters.Count == 0) continue;
+                        bool visible = vpExtents.Any(e => x >= e.xMin && x <= e.xMax && y >= e.yMin && y <= e.yMax);
+                        if (!visible) continue;
 
                         switch (cat)
                         {
