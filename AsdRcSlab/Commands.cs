@@ -1101,6 +1101,7 @@ namespace AsdRcSlab
         private static Dictionary<string, string> ExtractAutoTitle3(Database db)
         {
             var result = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+            var diagEd = AcApp.DocumentManager.MdiActiveDocument?.Editor;
             var msTexts = ScanModelSpaceTexts(db);
 
             using (var tr = db.TransactionManager.StartTransaction())
@@ -1137,10 +1138,13 @@ namespace AsdRcSlab
                     bool hasPh        = false;
                     bool hasDetail    = false;
 
+                    int inBboxCount = 0;
                     foreach (var (cat, x, y) in msTexts)
                     {
                         bool visible = vpExtents.Any(e => x >= e.xMin && x <= e.xMax && y >= e.yMin && y <= e.yMax);
                         if (!visible) continue;
+                        inBboxCount++;
+                        diagEd?.WriteMessage($"\n[EXTRACT DIAG]   inBbox: {cat} @ ({x:F0},{y:F0})");
 
                         switch (cat)
                         {
@@ -1151,6 +1155,10 @@ namespace AsdRcSlab
                             case MsTextCategory.Detail:     hasDetail   = true; break;
                         }
                     }
+                    diagEd?.WriteMessage($"\n[EXTRACT DIAG] Layout '{layout.LayoutName}' vps={vpExtents.Count} inBbox={inBboxCount}");
+                    foreach (var e in vpExtents)
+                        diagEd?.WriteMessage($"\n[EXTRACT DIAG]   VP bbox X=[{e.xMin:F0}..{e.xMax:F0}] Y=[{e.yMin:F0}..{e.yMax:F0}]");
+                    diagEd?.WriteMessage($"\n[EXTRACT DIAG]   flags: hasBottom={hasBottom} hasTop={hasTop} hasSec={hasSections} hasDet={hasDetail} hasPh={hasPh}");
 
                     // kolejność: BOTTOM LAYER, TOP LAYER, DETAIL, SECTIONS, PH DETAILS
                     var parts = new List<string>();
@@ -1171,6 +1179,7 @@ namespace AsdRcSlab
                     else
                         title3 = string.Join(", ", parts.Take(parts.Count - 1)) + " & " + parts.Last() + ".";
 
+                    diagEd?.WriteMessage($"\n[EXTRACT DIAG]   → title3: \"{title3}\"");
                     result[layout.LayoutName] = title3;
                 }
                 tr.Commit();
@@ -1911,13 +1920,13 @@ namespace AsdRcSlab
                             if (autoTitle3Map != null &&
                                 string.Equals(att.Tag, "TITLE_3", StringComparison.OrdinalIgnoreCase))
                             {
-                                if (autoTitle3Map.TryGetValue(layout.LayoutName, out string t3))
-                                {
-                                    if (!string.IsNullOrEmpty(t3))
-                                        newVal = t3;
-                                    else
-                                        ed?.WriteMessage($"\nRCN: layout '{layout.LayoutName}' — no content detected for TITLE_3, skipped");
-                                }
+                                string mapVal = autoTitle3Map.TryGetValue(layout.LayoutName, out string t3) ? t3 : "<NOT IN MAP>";
+                                ed?.WriteMessage($"\n[APPLY DIAG] Layout '{layout.LayoutName}': mapVal=\"{mapVal}\" currentT3=\"{att.TextString}\"");
+                                if (!string.IsNullOrEmpty(t3))
+                                    newVal = t3;
+                                else
+                                    ed?.WriteMessage($"\nRCN: layout '{layout.LayoutName}' — no content detected for TITLE_3, skipped");
+                                ed?.WriteMessage($"\n[APPLY DIAG]   newVal=\"{newVal ?? "(null)"}\"");
                             }
                             else if (autoScalesMap != null &&
                                      string.Equals(att.Tag, "SCALE", StringComparison.OrdinalIgnoreCase))
