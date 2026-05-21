@@ -46,6 +46,14 @@ namespace AsdRcSlab
                     ("Import Maps", "ASD-IMR", "Import reinforcement maps (TOP T1/T2, BOT B1/B2) from external DXF/DWG")
                 }, columnsPerRow: 1));
 
+            tab.Panels.Add(CreatePanel("BBS",
+                new[] {
+                    ("Bar Calculator", "ASD-BBC",
+                     "Calculate bar cutting lengths from xlsx export (BS 8666:2020). "
+                     + "Input: bar export xlsx; output: <name>_calculated.xlsx "
+                     + "with raw + final lengths.")
+                }, columnsPerRow: 1));
+
             ribbon.Tabs.Add(tab);
             tab.IsActive = true;
         }

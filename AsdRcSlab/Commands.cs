@@ -2341,6 +2341,27 @@ namespace AsdRcSlab
                 status, label, raw, expectedRaw, final, expectedFinal);
         }
 
+        [CommandMethod("ASD-BBC")]
+        public void RunBbsCalculator()
+        {
+            var doc = AcApp.DocumentManager.MdiActiveDocument;
+            if (doc == null) return;
+            var ed = doc.Editor;
+
+            var fileDlg = new Microsoft.Win32.OpenFileDialog
+            {
+                Title  = "Select bar export xlsx (BBS Calculator)",
+                Filter = "Excel (*.xlsx)|*.xlsx"
+            };
+            if (fileDlg.ShowDialog() != true)
+            {
+                ed.WriteMessage("\nCancelled.");
+                return;
+            }
+
+            RunBbsCalculation(ed, fileDlg.FileName);
+        }
+
         [CommandMethod("ASD-BBC-FILE-TEST")]
         public void RunBBSCalculatorFileTest()
         {
@@ -2357,8 +2378,13 @@ namespace AsdRcSlab
                 ed.WriteMessage("\nCancelled.");
                 return;
             }
-            string inputPath = fileDlg.FileName;
 
+            RunBbsCalculation(ed, fileDlg.FileName);
+        }
+
+        private static void RunBbsCalculation(
+            Autodesk.AutoCAD.EditorInput.Editor ed, string inputPath)
+        {
             try
             {
                 ed.WriteMessage("\nReading: {0}", inputPath);
