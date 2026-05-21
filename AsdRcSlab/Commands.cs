@@ -1122,8 +1122,9 @@ namespace AsdRcSlab
                         double cx = vp.ViewCenter.X;
                         double cy = vp.ViewCenter.Y;
                         double h  = vp.ViewHeight;
-                        double w  = h * (vp.Width / vp.Height);
-                        vpExtents.Add((cx - w / 2, cy - h / 2, cx + w / 2, cy + h / 2));
+                        double aspect = (vp.Height > 0) ? (vp.Width / vp.Height) : 1.0;
+                        double w  = h * aspect;
+                        vpExtents.Add((cx - w / 2, cy - h / 2, cx + w / 2, cy + h / 2 + h));
                     }
 
                     bool hasBottom    = false;
