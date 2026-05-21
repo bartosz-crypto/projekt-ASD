@@ -1050,6 +1050,7 @@ namespace AsdRcSlab
         private static List<(MsTextCategory cat, double x, double y)> ScanModelSpaceTexts(Database db)
         {
             var result = new List<(MsTextCategory, double, double)>();
+            var diagEd = AcApp.DocumentManager.MdiActiveDocument?.Editor;
 
             using (var tr = db.TransactionManager.StartTransaction())
             {
@@ -1067,12 +1068,16 @@ namespace AsdRcSlab
                         content = StripMTextFormatCodes(mt.Contents);
                         x = mt.Location.X;
                         y = mt.Location.Y;
+                        string snippet = (content ?? "").Length > 120 ? content.Substring(0, 120) : (content ?? "");
+                        diagEd?.WriteMessage($"\n[SCAN DIAG] MText layer='{mt.Layer}' ({x:F0},{y:F0}) stripped=\"{snippet}\"");
                     }
                     else if (ent is DBText t)
                     {
                         content = t.TextString;
                         x = t.Position.X;
                         y = t.Position.Y;
+                        string snippet = (content ?? "").Length > 120 ? content.Substring(0, 120) : (content ?? "");
+                        diagEd?.WriteMessage($"\n[SCAN DIAG] DBText layer='{t.Layer}' ({x:F0},{y:F0}) text=\"{snippet}\"");
                     }
                     else continue;
 
@@ -1085,16 +1090,20 @@ namespace AsdRcSlab
                     {
                         string which = mainMatch.Groups[1].Value.ToUpperInvariant();
                         msCat = which == "BOTTOM" ? MsTextCategory.MainBottom : MsTextCategory.MainTop;
+                        diagEd?.WriteMessage($"\n[SCAN DIAG]   → MainLayerRx: {msCat} (capture='{which}')");
                     }
-                    else if (SectionRx.IsMatch(content)) msCat = MsTextCategory.Section;
-                    else if (PhRx.IsMatch(content))      msCat = MsTextCategory.Ph;
-                    else if (DetailRx.IsMatch(content))  msCat = MsTextCategory.Detail;
+                    else if (SectionRx.IsMatch(content))  { msCat = MsTextCategory.Section; diagEd?.WriteMessage($"\n[SCAN DIAG]   → SectionRx"); }
+                    else if (PhRx.IsMatch(content))       { msCat = MsTextCategory.Ph;      diagEd?.WriteMessage($"\n[SCAN DIAG]   → PhRx"); }
+                    else if (DetailRx.IsMatch(content))   { msCat = MsTextCategory.Detail;  diagEd?.WriteMessage($"\n[SCAN DIAG]   → DetailRx"); }
 
                     if (msCat.HasValue)
                         result.Add((msCat.Value, x, y));
                 }
                 tr.Commit();
             }
+            diagEd?.WriteMessage($"\n[SCAN DIAG] === Summary: {result.Count} matches ===");
+            foreach (var (cat, rx, ry) in result)
+                diagEd?.WriteMessage($"\n[SCAN DIAG]   {cat} @ ({rx:F0},{ry:F0})");
             return result;
         }
 
@@ -1148,6 +1157,9 @@ namespace AsdRcSlab
                         }
                     }
 
+                    var exDiagEd = AcApp.DocumentManager.MdiActiveDocument?.Editor;
+                    exDiagEd?.WriteMessage($"\n[EXTRACT DIAG] Layout '{layout.LayoutName}': hasBottom={hasBottom} hasTop={hasTop} hasDetail={hasDetail} hasSections={hasSections} hasPh={hasPh}");
+
                     // kolejność: BOTTOM LAYER, TOP LAYER, DETAIL, SECTIONS, PH DETAILS
                     var parts = new List<string>();
                     if (hasBottom)   parts.Add("BOTTOM LAYER");
@@ -1166,6 +1178,8 @@ namespace AsdRcSlab
                         title3 = parts[0] + " & " + parts[1] + ".";
                     else
                         title3 = string.Join(", ", parts.Take(parts.Count - 1)) + " & " + parts.Last() + ".";
+
+                    exDiagEd?.WriteMessage($"\n[EXTRACT DIAG] Layout '{layout.LayoutName}' → TITLE_3: \"{title3}\"");
 
                     result[layout.LayoutName] = title3;
                 }
