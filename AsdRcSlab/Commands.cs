@@ -2340,5 +2340,57 @@ namespace AsdRcSlab
                 "\n{0}: {1} | raw={2} (exp {3}) | final={4} (exp {5})",
                 status, label, raw, expectedRaw, final, expectedFinal);
         }
+
+        [CommandMethod("ASD-BBC-FILE-TEST")]
+        public void RunBBSCalculatorFileTest()
+        {
+            var doc = AcApp.DocumentManager.MdiActiveDocument;
+            var ed  = doc.Editor;
+
+            var fileDlg = new Microsoft.Win32.OpenFileDialog
+            {
+                Title  = "Select BBS export xlsx",
+                Filter = "Excel (*.xlsx)|*.xlsx"
+            };
+            if (fileDlg.ShowDialog() != true)
+            {
+                ed.WriteMessage("\nCancelled.");
+                return;
+            }
+            string inputPath = fileDlg.FileName;
+
+            try
+            {
+                ed.WriteMessage("\nReading: {0}", inputPath);
+                var rows = BbsXlsxReader.Read(inputPath);
+                ed.WriteMessage("\nLoaded {0} bar rows.", rows.Count);
+
+                string outputPath = BuildBbsOutputPath(inputPath);
+                BbsXlsxWriter.Write(outputPath, rows);
+                ed.WriteMessage("\nSaved to: {0}", outputPath);
+
+                int ok = 0, err = 0;
+                foreach (var r in rows)
+                {
+                    double raw = BS8666Calculator.CalculateRawCuttingLength(r);
+                    if (double.IsNaN(raw)) err++; else ok++;
+                }
+                ed.WriteMessage("\nSummary: {0} OK, {1} with error.", ok, err);
+            }
+            catch (System.Exception ex)
+            {
+                ed.WriteMessage("\nERROR: {0}", ex.Message);
+            }
+        }
+
+        private static string BuildBbsOutputPath(string inputPath)
+        {
+            string dir      = System.IO.Path.GetDirectoryName(inputPath);
+            string baseName = System.IO.Path.GetFileNameWithoutExtension(inputPath);
+            string ext      = System.IO.Path.GetExtension(inputPath);
+            if (!".xlsx".Equals(ext, System.StringComparison.OrdinalIgnoreCase))
+                ext = ".xlsx";
+            return System.IO.Path.Combine(dir, baseName + "_calculated" + ext);
+        }
     }
 }
