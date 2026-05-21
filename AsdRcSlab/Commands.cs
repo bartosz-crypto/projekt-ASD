@@ -1255,6 +1255,89 @@ namespace AsdRcSlab
         {
             var ed = AcApp.DocumentManager.MdiActiveDocument.Editor;
 
+            // Pre-pass: deduce and write DRAWING_NUMBER for layouts that lack one
+            var existingDrawingNos = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+            var rcNumbers = new List<int>();
+            string commonPrefix = null;
+            int suffixWidth = 3;
+
+            using (var tr = db.TransactionManager.StartTransaction())
+            {
+                var layoutDict = (DBDictionary)tr.GetObject(db.LayoutDictionaryId, OpenMode.ForRead);
+                foreach (DBDictionaryEntry entry in layoutDict)
+                {
+                    var layout = tr.GetObject(entry.Value, OpenMode.ForRead) as Layout;
+                    if (layout == null || string.Equals(layout.LayoutName, "Model", StringComparison.OrdinalIgnoreCase)) continue;
+
+                    string drawingNo = null;
+                    var btr = (BlockTableRecord)tr.GetObject(layout.BlockTableRecordId, OpenMode.ForRead);
+                    foreach (ObjectId oid in btr)
+                    {
+                        var br = tr.GetObject(oid, OpenMode.ForRead) as BlockReference;
+                        if (br == null || !string.Equals(br.Name, TitleBlockName, StringComparison.OrdinalIgnoreCase)) continue;
+                        foreach (ObjectId aid in br.AttributeCollection)
+                        {
+                            var att = tr.GetObject(aid, OpenMode.ForRead) as AttributeReference;
+                            if (att != null && string.Equals(att.Tag, "DRAWING_NUMBER", StringComparison.OrdinalIgnoreCase))
+                            { drawingNo = att.TextString; break; }
+                        }
+                        if (drawingNo != null) break;
+                    }
+
+                    existingDrawingNos[layout.LayoutName] = drawingNo;
+                    if (!string.IsNullOrEmpty(drawingNo))
+                    {
+                        var m = Regex.Match(drawingNo, @"^(.*-RC)(\d+)$");
+                        if (m.Success)
+                        {
+                            if (commonPrefix == null) commonPrefix = m.Groups[1].Value;
+                            rcNumbers.Add(int.Parse(m.Groups[2].Value));
+                            suffixWidth = m.Groups[2].Value.Length;
+                        }
+                    }
+                }
+                tr.Commit();
+            }
+
+            if (commonPrefix != null && rcNumbers.Count > 0)
+            {
+                int maxNum = rcNumbers.Max();
+                using (var tr = db.TransactionManager.StartTransaction())
+                {
+                    var layoutDict = (DBDictionary)tr.GetObject(db.LayoutDictionaryId, OpenMode.ForRead);
+                    foreach (DBDictionaryEntry entry in layoutDict)
+                    {
+                        var layout = tr.GetObject(entry.Value, OpenMode.ForRead) as Layout;
+                        if (layout == null || string.Equals(layout.LayoutName, "Model", StringComparison.OrdinalIgnoreCase)) continue;
+
+                        if (!existingDrawingNos.TryGetValue(layout.LayoutName, out string existing) || string.IsNullOrEmpty(existing))
+                        {
+                            int newNum = ++maxNum;
+                            string newDrawingNo = commonPrefix + newNum.ToString("D" + suffixWidth);
+                            var btr = (BlockTableRecord)tr.GetObject(layout.BlockTableRecordId, OpenMode.ForRead);
+                            foreach (ObjectId oid in btr)
+                            {
+                                var br = tr.GetObject(oid, OpenMode.ForRead) as BlockReference;
+                                if (br == null || !string.Equals(br.Name, TitleBlockName, StringComparison.OrdinalIgnoreCase)) continue;
+                                foreach (ObjectId aid in br.AttributeCollection)
+                                {
+                                    var att = tr.GetObject(aid, OpenMode.ForRead) as AttributeReference;
+                                    if (att != null && string.Equals(att.Tag, "DRAWING_NUMBER", StringComparison.OrdinalIgnoreCase))
+                                    {
+                                        att.UpgradeOpen();
+                                        att.TextString = newDrawingNo;
+                                        ed?.WriteMessage($"\nRCN: assigned DRAWING_NUMBER='{newDrawingNo}' to layout '{layout.LayoutName}'");
+                                        break;
+                                    }
+                                }
+                                break;
+                            }
+                        }
+                    }
+                    tr.Commit();
+                }
+            }
+
             var planned = new List<(string oldName, string newName)>();
             using (var tr = db.TransactionManager.StartTransaction())
             {
@@ -1786,6 +1869,7 @@ namespace AsdRcSlab
             string nowDate)
         {
             int updatedLayouts = 0;
+            var ed = AcApp.DocumentManager.MdiActiveDocument?.Editor;
 
             using (var tr = db.TransactionManager.StartTransaction())
             {
@@ -1817,10 +1901,12 @@ namespace AsdRcSlab
                             if (autoTitle3Map != null &&
                                 string.Equals(att.Tag, "TITLE_3", StringComparison.OrdinalIgnoreCase))
                             {
-                                if (autoTitle3Map.TryGetValue(layout.LayoutName, out string t3)
-                                    && !string.IsNullOrEmpty(t3))
+                                if (autoTitle3Map.TryGetValue(layout.LayoutName, out string t3))
                                 {
-                                    newVal = t3;
+                                    if (!string.IsNullOrEmpty(t3))
+                                        newVal = t3;
+                                    else
+                                        ed?.WriteMessage($"\nRCN: layout '{layout.LayoutName}' — no content detected for TITLE_3, skipped");
                                 }
                             }
                             else if (autoScalesMap != null &&
