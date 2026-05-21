@@ -2409,6 +2409,69 @@ namespace AsdRcSlab
             }
         }
 
+        [CommandMethod("ASD-BBS-INSPECT")]
+        public void RunBbsInspect()
+        {
+            var doc = AcApp.DocumentManager.MdiActiveDocument;
+            if (doc == null) return;
+            var ed = doc.Editor;
+
+            var fileDlg = new Microsoft.Win32.OpenFileDialog
+            {
+                Title  = "Select BBS file (.xls or .xlsx) to inspect",
+                Filter = "Excel (*.xls;*.xlsx)|*.xls;*.xlsx"
+            };
+            if (fileDlg.ShowDialog() != true)
+            {
+                ed.WriteMessage("\nCancelled.");
+                return;
+            }
+
+            try
+            {
+                var info = BbsXlsReader.DetectLayout(fileDlg.FileName);
+                ed.WriteMessage("\n=== BBS Layout Inspection ===");
+                ed.WriteMessage("\nFile: {0}", info.FilePath);
+                ed.WriteMessage("\nSheets: {0}", info.Sheets.Count);
+
+                foreach (var sh in info.Sheets)
+                {
+                    ed.WriteMessage(
+                        "\n\nSheet [{0}] \"{1}\":",
+                        sh.SheetIndex, sh.SheetName);
+
+                    if (sh.BottomLayer != null)
+                        ed.WriteMessage(
+                            "\n  BOTTOM LAYER: rows {0}-{1} ({2} data rows)",
+                            sh.BottomLayer.FirstDataRow + 1,
+                            sh.BottomLayer.LastDataRow  + 1,
+                            sh.BottomLayer.DataRowCount);
+                    else
+                        ed.WriteMessage("\n  BOTTOM LAYER: not found");
+
+                    if (sh.TopLayer != null)
+                        ed.WriteMessage(
+                            "\n  TOP LAYER:    rows {0}-{1} ({2} data rows)",
+                            sh.TopLayer.FirstDataRow + 1,
+                            sh.TopLayer.LastDataRow  + 1,
+                            sh.TopLayer.DataRowCount);
+                    else
+                        ed.WriteMessage("\n  TOP LAYER:    not found");
+
+                    if (sh.AccessoriesRow.HasValue)
+                        ed.WriteMessage(
+                            "\n  Accessories boundary: row {0}",
+                            sh.AccessoriesRow.Value + 1);
+                }
+
+                ed.WriteMessage("\n=== end ===\n");
+            }
+            catch (System.Exception ex)
+            {
+                ed.WriteMessage("\nERROR: {0}", ex.Message);
+            }
+        }
+
         private static string BuildBbsOutputPath(string inputPath)
         {
             string dir      = System.IO.Path.GetDirectoryName(inputPath);
