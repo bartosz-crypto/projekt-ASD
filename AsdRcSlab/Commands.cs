@@ -1255,9 +1255,9 @@ namespace AsdRcSlab
         {
             var ed = AcApp.DocumentManager.MdiActiveDocument.Editor;
 
-            // Pre-pass: deduce and write DRAWING_NUMBER for layouts that lack one
-            var existingDrawingNos = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
-            var rcNumbers = new List<int>();
+            // Pre-pass: deduce and write DRAWING_NUMBER for layouts missing it or with duplicates.
+            // First occurrence of each RC number keeps it; duplicates and nulls get next available.
+            var layoutDrawings = new List<(string layoutName, string drawingNo, int? rcNum)>();
             string commonPrefix = null;
             int suffixWidth = 3;
 
@@ -1284,24 +1284,34 @@ namespace AsdRcSlab
                         if (drawingNo != null) break;
                     }
 
-                    existingDrawingNos[layout.LayoutName] = drawingNo;
+                    int? rcNum = null;
                     if (!string.IsNullOrEmpty(drawingNo))
                     {
                         var m = Regex.Match(drawingNo, @"^(.*-RC)(\d+)$");
                         if (m.Success)
                         {
                             if (commonPrefix == null) commonPrefix = m.Groups[1].Value;
-                            rcNumbers.Add(int.Parse(m.Groups[2].Value));
+                            rcNum = int.Parse(m.Groups[2].Value);
                             suffixWidth = m.Groups[2].Value.Length;
                         }
                     }
+                    layoutDrawings.Add((layout.LayoutName, drawingNo, rcNum));
                 }
                 tr.Commit();
             }
 
-            if (commonPrefix != null && rcNumbers.Count > 0)
+            // Identify: first occurrence of each rcNum keeps it; duplicates + nulls need new number
+            var usedRcNumbers = new HashSet<int>();
+            var layoutsNeedingNew = new List<string>();
+            foreach (var (lname, _, rcNum) in layoutDrawings)
             {
-                int maxNum = rcNumbers.Max();
+                if (!rcNum.HasValue || !usedRcNumbers.Add(rcNum.Value))
+                    layoutsNeedingNew.Add(lname);
+            }
+
+            if (commonPrefix != null && layoutsNeedingNew.Count > 0)
+            {
+                int nextNum = usedRcNumbers.Count > 0 ? usedRcNumbers.Max() : 0;
                 using (var tr = db.TransactionManager.StartTransaction())
                 {
                     var layoutDict = (DBDictionary)tr.GetObject(db.LayoutDictionaryId, OpenMode.ForRead);
@@ -1309,29 +1319,29 @@ namespace AsdRcSlab
                     {
                         var layout = tr.GetObject(entry.Value, OpenMode.ForRead) as Layout;
                         if (layout == null || string.Equals(layout.LayoutName, "Model", StringComparison.OrdinalIgnoreCase)) continue;
+                        if (!layoutsNeedingNew.Contains(layout.LayoutName, StringComparer.OrdinalIgnoreCase)) continue;
 
-                        if (!existingDrawingNos.TryGetValue(layout.LayoutName, out string existing) || string.IsNullOrEmpty(existing))
+                        nextNum++;
+                        string newDrawingNo = commonPrefix + nextNum.ToString("D" + suffixWidth);
+                        usedRcNumbers.Add(nextNum);
+
+                        var btr = (BlockTableRecord)tr.GetObject(layout.BlockTableRecordId, OpenMode.ForRead);
+                        foreach (ObjectId oid in btr)
                         {
-                            int newNum = ++maxNum;
-                            string newDrawingNo = commonPrefix + newNum.ToString("D" + suffixWidth);
-                            var btr = (BlockTableRecord)tr.GetObject(layout.BlockTableRecordId, OpenMode.ForRead);
-                            foreach (ObjectId oid in btr)
+                            var br = tr.GetObject(oid, OpenMode.ForRead) as BlockReference;
+                            if (br == null || !string.Equals(br.Name, TitleBlockName, StringComparison.OrdinalIgnoreCase)) continue;
+                            foreach (ObjectId aid in br.AttributeCollection)
                             {
-                                var br = tr.GetObject(oid, OpenMode.ForRead) as BlockReference;
-                                if (br == null || !string.Equals(br.Name, TitleBlockName, StringComparison.OrdinalIgnoreCase)) continue;
-                                foreach (ObjectId aid in br.AttributeCollection)
+                                var att = tr.GetObject(aid, OpenMode.ForRead) as AttributeReference;
+                                if (att != null && string.Equals(att.Tag, "DRAWING_NUMBER", StringComparison.OrdinalIgnoreCase))
                                 {
-                                    var att = tr.GetObject(aid, OpenMode.ForRead) as AttributeReference;
-                                    if (att != null && string.Equals(att.Tag, "DRAWING_NUMBER", StringComparison.OrdinalIgnoreCase))
-                                    {
-                                        att.UpgradeOpen();
-                                        att.TextString = newDrawingNo;
-                                        ed?.WriteMessage($"\nRCN: assigned DRAWING_NUMBER='{newDrawingNo}' to layout '{layout.LayoutName}'");
-                                        break;
-                                    }
+                                    att.UpgradeOpen();
+                                    att.TextString = newDrawingNo;
+                                    ed?.WriteMessage($"\nRCN: assigned DRAWING_NUMBER='{newDrawingNo}' to layout '{layout.LayoutName}'");
+                                    break;
                                 }
-                                break;
                             }
+                            break;
                         }
                     }
                     tr.Commit();
