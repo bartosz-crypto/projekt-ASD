@@ -1098,6 +1098,7 @@ namespace AsdRcSlab
         {
             var result = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
             var msTexts = ScanModelSpaceTexts(db);
+            var diagEd = AcApp.DocumentManager.MdiActiveDocument.Editor;
 
             using (var tr = db.TransactionManager.StartTransaction())
             {
@@ -1110,7 +1111,7 @@ namespace AsdRcSlab
                         continue;
 
                     var btr = (BlockTableRecord)tr.GetObject(layout.BlockTableRecordId, OpenMode.ForRead);
-                    var vpExtents = new List<(double xMin, double yMin, double xMax, double yMax)>();
+                    var vpCenters = new List<(double cx, double cy)>();
                     int vpIdx = 0;
                     foreach (ObjectId id in btr)
                     {
@@ -1121,10 +1122,7 @@ namespace AsdRcSlab
 
                         double cx = vp.ViewCenter.X;
                         double cy = vp.ViewCenter.Y;
-                        double h  = vp.ViewHeight;
-                        double aspect = (vp.Height > 0) ? (vp.Width / vp.Height) : 1.0;
-                        double w  = h * aspect;
-                        vpExtents.Add((cx - w / 2, cy - h / 2, cx + w / 2, cy + h / 2 + h));
+                        vpCenters.Add((cx, cy));
                     }
 
                     bool hasBottom    = false;
@@ -1133,10 +1131,19 @@ namespace AsdRcSlab
                     bool hasPh        = false;
                     bool hasDetail    = false;
 
+                    diagEd.WriteMessage($"\n[RCN DIAG] Layout='{layout.LayoutName}' vp={vpCenters.Count}");
+                    foreach (var vc in vpCenters)
+                        diagEd.WriteMessage($"\n[RCN DIAG]   VP center ({vc.cx:F0},{vc.cy:F0})");
+
                     foreach (var (cat, x, y) in msTexts)
                     {
-                        bool visible = vpExtents.Any(e => x >= e.xMin && x <= e.xMax && y >= e.yMin && y <= e.yMax);
-                        if (!visible) continue;
+                        if (vpCenters.Count == 0) continue;
+
+                        if (cat == MsTextCategory.Detail || cat == MsTextCategory.MainBottom ||
+                            cat == MsTextCategory.MainTop || cat == MsTextCategory.Section)
+                        {
+                            diagEd.WriteMessage($"\n[RCN DIAG]   {cat} @ ({x:F0},{y:F0}) → classified");
+                        }
 
                         switch (cat)
                         {
