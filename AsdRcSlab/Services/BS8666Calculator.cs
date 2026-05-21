@@ -30,7 +30,7 @@ namespace AsdRcSlab
             int d = row.Diameter;
             double r = GetSchedulingRadius(d);
             double A = row.A, B = row.B, C = row.C, D = row.D;
-            double E = row.EOrR ?? 0.0;
+            double? E = row.EOrR;
 
             switch (row.ShapeCode)
             {
@@ -42,13 +42,139 @@ namespace AsdRcSlab
                     // L-shape (90° bend): L = A + B − 0.5r − d
                     return A + B - 0.5 * r - d;
 
+                case 12:
+                    // U-shape (2×90°). E/R = actual mandrel radius (user-supplied).
+                    // L = A + B − 0.43·R − 1.2·d
+                    if (!E.HasValue) return double.NaN;
+                    return A + B - 0.43 * E.Value - 1.2 * d;
+
+                case 13:
+                    // Crank/offset: L = A + 0.57·B + C − 1.6·d
+                    return A + 0.57 * B + C - 1.6 * d;
+
+                case 14:
+                    // L = A + C − 4d
+                    return A + C - 4 * d;
+
+                case 15:
+                    // L = A + C (no deduction)
+                    return A + C;
+
                 case 21:
                     // Cranked U-bar (2×90°): L = A + B + C − r − 2d
                     return A + B + C - r - 2 * d;
 
-                // p97: codes 12, 13, 14, 15, 22, 23, 24, 25, 26, 27, 28,
-                // 29, 31, 32, 33, 34, 35, 36, 41, 44, 46, 47, 51, 56, 63,
-                // 67, 75, 77, 98 (28 sztuk).
+                case 22:
+                    // U-shape double crank (3 bends): L = A + B + C + D − 1.5r − 3d
+                    return A + B + C + D - 1.5 * r - 3 * d;
+
+                case 23:
+                    // Mega-formula AC16: L = A + B + C − r − 2d (same as code 21)
+                    return A + B + C - r - 2 * d;
+
+                case 24:
+                    // L = A + B + C
+                    return A + B + C;
+
+                case 25:
+                    // L = A + B + E. E/R required.
+                    if (!E.HasValue) return double.NaN;
+                    return A + B + E.Value;
+
+                case 26:
+                    // L = A + B + C
+                    return A + B + C;
+
+                case 27:
+                    // L = A + B + C − 0.5r − d
+                    return A + B + C - 0.5 * r - d;
+
+                case 28:
+                    // L = A + B + C − 0.5r − d
+                    return A + B + C - 0.5 * r - d;
+
+                case 29:
+                    // L = A + B + C − r − 2d
+                    return A + B + C - r - 2 * d;
+
+                case 31:
+                    // L = A + B + C + D − 1.5r − 3d
+                    return A + B + C + D - 1.5 * r - 3 * d;
+
+                case 32:
+                    // L = A + B + C + D − 1.5r − 3d
+                    return A + B + C + D - 1.5 * r - 3 * d;
+
+                case 33:
+                    // L = 2A + 1.7B + 2C − 4d
+                    return 2 * A + 1.7 * B + 2 * C - 4 * d;
+
+                case 34:
+                    // L = A + B + C + E − 0.5r − d. E/R required.
+                    if (!E.HasValue) return double.NaN;
+                    return A + B + C + E.Value - 0.5 * r - d;
+
+                case 35:
+                    // L = A + B + C + E − 0.5r − d. E/R required.
+                    if (!E.HasValue) return double.NaN;
+                    return A + B + C + E.Value - 0.5 * r - d;
+
+                case 36:
+                    // L = A + B + C + D − r − 2d
+                    return A + B + C + D - r - 2 * d;
+
+                case 41:
+                    // L = A + B + C + D + E − 2r − 4d. E/R required.
+                    if (!E.HasValue) return double.NaN;
+                    return A + B + C + D + E.Value - 2 * r - 4 * d;
+
+                case 44:
+                    // L = A + B + C + D + E − 2r − 4d. E/R required.
+                    if (!E.HasValue) return double.NaN;
+                    return A + B + C + D + E.Value - 2 * r - 4 * d;
+
+                case 46:
+                    // L = A + 2B + C + E. E/R required.
+                    if (!E.HasValue) return double.NaN;
+                    return A + 2 * B + C + E.Value;
+
+                case 47:
+                    // L = 2A + B + MAX(21d, 240)
+                    return 2 * A + B + Math.Max(21.0 * d, 240.0);
+
+                case 51:
+                    // Closed link/stirrup: L = 2A + 2B + MAX(16d, 160)
+                    return 2 * A + 2 * B + Math.Max(16.0 * d, 160.0);
+
+                case 56:
+                    // L = A + B + C + D + 2E − 2.5r − 5d. E/R required.
+                    if (!E.HasValue) return double.NaN;
+                    return A + B + C + D + 2 * E.Value - 2.5 * r - 5 * d;
+
+                case 63:
+                    // Double rect. link: L = 2A + 3B + MAX(14d, 150)
+                    return 2 * A + 3 * B + Math.Max(14.0 * d, 150.0);
+
+                case 67:
+                    // L = A
+                    return A;
+
+                case 75:
+                    // Circular: L = π·(A − d) + B
+                    return Math.PI * (A - d) + B;
+
+                case 77:
+                    // Helical/spiral. A=outer dia, B=pitch, C=number of turns.
+                    // B > A/5 → slanted: L = C · sqrt((π(A−d))² + B²)
+                    // else    → flat:    L = C · π(A−d)
+                    if (B > A / 5.0)
+                        return C * Math.Sqrt(Math.Pow(Math.PI * (A - d), 2) + B * B);
+                    return C * Math.PI * (A - d);
+
+                case 98:
+                    // L = A + 2B + C + D − 2r − 4d
+                    return A + 2 * B + C + D - 2 * r - 4 * d;
+
                 default:
                     return double.NaN;
             }

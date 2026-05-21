@@ -2206,7 +2206,124 @@ namespace AsdRcSlab
             };
             AssertBar(ed, "Bar 12 (H12, code 21)", row12, 2242.0, 2250.0);
 
+            // Bar 3: H10, code 13, A=860, B=70, C=860
+            // raw = 860 + 0.57*70 + 860 - 1.6*10 = 1743.9 → final 1750
+            var row3 = new BbsBarRow
+            {
+                BarMark = 3, TypeSize = "H10", ShapeCode = 13,
+                A = 860, B = 70, C = 860
+            };
+            AssertBar(ed, "Bar 3 (H10, code 13)", row3, 1743.9, 1750.0);
+
+            // Bar 14: H12, code 51, A=410, B=365
+            // raw = 2*410 + 2*365 + max(16*12=192, 160) = 820+730+192 = 1742 → 1750
+            var row14 = new BbsBarRow
+            {
+                BarMark = 14, TypeSize = "H12", ShapeCode = 51,
+                A = 410, B = 365
+            };
+            AssertBar(ed, "Bar 14 (H12, code 51)", row14, 1742.0, 1750.0);
+
+            // Bar 13: H12, code 63, A=215, B=510
+            // raw = 2*215 + 3*510 + max(14*12=168, 150) = 430+1530+168 = 2128 → 2150
+            var row13 = new BbsBarRow
+            {
+                BarMark = 13, TypeSize = "H12", ShapeCode = 63,
+                A = 215, B = 510
+            };
+            AssertBar(ed, "Bar 13 (H12, code 63)", row13, 2128.0, 2150.0);
+
+            // synth code 22: H12, A=B=C=D=500. r=24, d=12.
+            // raw = 2000 - 1.5*24 - 3*12 = 1928 → 1950
+            var rowS22 = new BbsBarRow
+            {
+                BarMark = 901, TypeSize = "H12", ShapeCode = 22,
+                A = 500, B = 500, C = 500, D = 500
+            };
+            AssertBar(ed, "synth (H12, code 22)", rowS22, 1928.0, 1950.0);
+
+            // synth code 33: H12, A=200, B=400, C=200.
+            // raw = 2*200 + 1.7*400 + 2*200 - 4*12 = 1432 → 1450
+            var rowS33 = new BbsBarRow
+            {
+                BarMark = 902, TypeSize = "H12", ShapeCode = 33,
+                A = 200, B = 400, C = 200
+            };
+            AssertBar(ed, "synth (H12, code 33)", rowS33, 1432.0, 1450.0);
+
+            // synth code 47: H12, A=200, B=400.
+            // raw = 2*200 + 400 + max(21*12=252, 240) = 1052 → 1075
+            var rowS47 = new BbsBarRow
+            {
+                BarMark = 903, TypeSize = "H12", ShapeCode = 47,
+                A = 200, B = 400
+            };
+            AssertBar(ed, "synth (H12, code 47)", rowS47, 1052.0, 1075.0);
+
+            // synth code 75 (circular): H12, A=1000, B=200.
+            // raw = π*(1000-12) + 200 = 3303.85 → 3325
+            var rowS75 = new BbsBarRow
+            {
+                BarMark = 904, TypeSize = "H12", ShapeCode = 75,
+                A = 1000, B = 200
+            };
+            AssertBar(ed, "synth (H12, code 75)", rowS75, 3303.85, 3325.0);
+
+            // synth code 12 z E/R: H12, A=500, B=500, R=50.
+            // raw = 500 + 500 - 0.43*50 - 1.2*12 = 964.1 → 975
+            var rowS12 = new BbsBarRow
+            {
+                BarMark = 905, TypeSize = "H12", ShapeCode = 12,
+                A = 500, B = 500, EOrR = 50
+            };
+            AssertBar(ed, "synth (H12, code 12, R=50)", rowS12, 964.1, 975.0);
+
+            // synth code 12 BEZ E/R → NaN
+            var rowS12null = new BbsBarRow
+            {
+                BarMark = 906, TypeSize = "H12", ShapeCode = 12,
+                A = 500, B = 500
+            };
+            AssertNaN(ed, "synth (H12, code 12, NO E/R)", rowS12null);
+
+            // synth code 41 z E: H12, A=B=C=D=300, E=200.
+            // raw = 1400 - 2*24 - 4*12 = 1304 → 1325
+            var rowS41 = new BbsBarRow
+            {
+                BarMark = 907, TypeSize = "H12", ShapeCode = 41,
+                A = 300, B = 300, C = 300, D = 300, EOrR = 200
+            };
+            AssertBar(ed, "synth (H12, code 41, E=200)", rowS41, 1304.0, 1325.0);
+
+            // synth code 67: H12, A=1000. raw=1000 → final 1000 (exact multiple of 25)
+            var rowS67 = new BbsBarRow
+            {
+                BarMark = 908, TypeSize = "H12", ShapeCode = 67,
+                A = 1000
+            };
+            AssertBar(ed, "synth (H12, code 67)", rowS67, 1000.0, 1000.0);
+
+            // synth code 999 (unknown) → NaN
+            var rowSUnk = new BbsBarRow
+            {
+                BarMark = 909, TypeSize = "H12", ShapeCode = 999,
+                A = 500
+            };
+            AssertNaN(ed, "synth (H12, code 999 unknown)", rowSUnk);
+
             ed.WriteMessage("\n=== koniec ===\n");
+        }
+
+        private static void AssertNaN(
+            Autodesk.AutoCAD.EditorInput.Editor ed,
+            string label, BbsBarRow row)
+        {
+            double raw   = BS8666Calculator.CalculateRawCuttingLength(row);
+            double final = BS8666Calculator.CalculateFinalCuttingLength(row);
+            bool ok = double.IsNaN(raw) && double.IsNaN(final);
+            ed.WriteMessage(
+                "\n{0}: {1} | raw={2} final={3} (expected NaN)",
+                ok ? "PASS" : "FAIL", label, raw, final);
         }
 
         private static void AssertBar(
