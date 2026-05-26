@@ -171,6 +171,7 @@ namespace AsdRcSlab
         /// <summary>
         /// Czyści kolumny B-M w sekcji (FirstDataRow..LastDataRow włącznie),
         /// zostawia kolumnę A (etykieta warstwy) i kolumny AB/AC (formuły).
+        /// SetCellType(Blank) zachowuje CellStyle (ramki, formatowanie).
         /// Zwraca liczbę wierszy w których coś było.
         /// </summary>
         private static int ClearSection(ISheet sheet, BbsLayerSection sec)
@@ -181,18 +182,17 @@ namespace AsdRcSlab
                 var row = sheet.GetRow(r);
                 if (row == null) continue;
                 bool hadSomething = false;
-                // Zbieram cells do usunięcia (nie można modyfikować podczas iteracji)
-                var toRemove = new List<ICell>();
                 for (int c = ColB; c <= ColM; c++)
                 {
                     var cell = row.GetCell(c);
                     if (cell != null && cell.CellType != CellType.Blank)
                     {
                         hadSomething = true;
-                        toRemove.Add(cell);
+                        // SetCellType(Blank) zachowuje CellStyle (formatowanie),
+                        // w przeciwieństwie do RemoveCell z p101c.
+                        cell.SetCellType(CellType.Blank);
                     }
                 }
-                foreach (var cell in toRemove) row.RemoveCell(cell);
                 if (hadSomething) cleared++;
             }
             return cleared;
@@ -216,83 +216,48 @@ namespace AsdRcSlab
         {
             int  code       = b.ShapeCode;
             bool isStraight = (code == 0);
-            bool isLink     = (code == 51 || code == 63);
 
-            // B: Bar mark (number)
+            // Zawsze pisane: B-G (bar mark, type, no mbrs, no each, total, length)
             GetOrCreate(row, ColB).SetCellValue(b.BarMark);
-
-            // C: Type (string, np. "H12")
             GetOrCreate(row, ColC).SetCellValue(b.TypeSize ?? "");
-
-            // D: No. members (number)
             GetOrCreate(row, ColD).SetCellValue(b.NoMembers);
-
-            // E: No. each (number)
             GetOrCreate(row, ColE).SetCellValue(b.NoEach);
-
-            // F: Total (number)
             GetOrCreate(row, ColF).SetCellValue(b.Total);
 
-            // G: BS8666 final length (number)
-            // Wylicza writer, bo input b1-style ma w F raw length, nie BS8666.
+            // G: BS8666 final length
             double final = BS8666Calculator.CalculateFinalCuttingLength(b);
             if (!double.IsNaN(final))
                 GetOrCreate(row, ColG).SetCellValue(final);
-            else
-                Blank(row, ColG);
 
-            // H: Shape code
-            //   code 0 → string "00", inne → number
+            // H: shape code
             if (isStraight)
                 GetOrCreate(row, ColH).SetCellValue("00");
             else
                 GetOrCreate(row, ColH).SetCellValue((double)code);
 
-            // I: A
-            //   code 0 → string "STR", inne → number
+            // I-M: per-code dimension logic
             if (isStraight)
+            {
+                // Special case: A = "STR" string, B-M nietykane.
+                // Cells pre-existing po Clear są Blank z zachowanym stylem.
                 GetOrCreate(row, ColI).SetCellValue("STR");
+            }
             else
-                GetOrCreate(row, ColI).SetCellValue(b.A);
-
-            // J: B
-            //   code 0 → blank, inne → number
-            if (isStraight)
-                Blank(row, ColJ);
-            else
-                GetOrCreate(row, ColJ).SetCellValue(b.B);
-
-            // K: C
-            //   code 0/51/63 → blank, inne → number
-            if (isStraight || isLink)
-                Blank(row, ColK);
-            else
-                GetOrCreate(row, ColK).SetCellValue(b.C);
-
-            // L: D
-            //   code 0/51/63 → blank, inne → number
-            if (isStraight || isLink)
-                Blank(row, ColL);
-            else
-                GetOrCreate(row, ColL).SetCellValue(b.D);
-
-            // M: E/R
-            //   blank jeśli null, inne → number
-            if (b.EOrR.HasValue)
-                GetOrCreate(row, ColM).SetCellValue(b.EOrR.Value);
-            else
-                Blank(row, ColM);
+            {
+                var used = BS8666Calculator.GetUsedDimensions(code);
+                if (used.HasA) GetOrCreate(row, ColI).SetCellValue(b.A);
+                if (used.HasB) GetOrCreate(row, ColJ).SetCellValue(b.B);
+                if (used.HasC) GetOrCreate(row, ColK).SetCellValue(b.C);
+                if (used.HasD) GetOrCreate(row, ColL).SetCellValue(b.D);
+                if (used.HasE && b.EOrR.HasValue)
+                    GetOrCreate(row, ColM).SetCellValue(b.EOrR.Value);
+                // Cells dla "not used" dimensions — nie tykane.
+            }
         }
 
         private static ICell GetOrCreate(IRow row, int col)
         {
             return row.GetCell(col) ?? row.CreateCell(col);
-        }
-
-        private static void Blank(IRow row, int col)
-        {
-            var c = row.GetCell(col);
-            if (c != null) row.RemoveCell(c);
         }
     }
 }
