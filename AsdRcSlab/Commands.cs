@@ -2472,6 +2472,62 @@ namespace AsdRcSlab
             }
         }
 
+        [CommandMethod("ASD-BBS-WRITE")]
+        public void RunBbsWrite()
+        {
+            var doc = AcApp.DocumentManager.MdiActiveDocument;
+            if (doc == null) return;
+            var ed = doc.Editor;
+
+            // Dialog 1: input xlsx (calculated z ASD-BBC lub b1-style)
+            var inputDlg = new Microsoft.Win32.OpenFileDialog
+            {
+                Title  = "Select INPUT xlsx (calculated or b1-style)",
+                Filter = "Excel (*.xlsx)|*.xlsx"
+            };
+            if (inputDlg.ShowDialog() != true)
+            {
+                ed.WriteMessage("\nCancelled.");
+                return;
+            }
+
+            // Dialog 2: target BBS .xls / .xlsx
+            var bbsDlg = new Microsoft.Win32.OpenFileDialog
+            {
+                Title  = "Select TARGET BBS file (.xls or .xlsx)",
+                Filter = "Excel (*.xls;*.xlsx)|*.xls;*.xlsx"
+            };
+            if (bbsDlg.ShowDialog() != true)
+            {
+                ed.WriteMessage("\nCancelled.");
+                return;
+            }
+
+            try
+            {
+                ed.WriteMessage("\nReading input: {0}", inputDlg.FileName);
+                var rows = BbsXlsxReader.Read(inputDlg.FileName);
+                ed.WriteMessage("\nLoaded {0} bar rows.", rows.Count);
+
+                // Backup BBS przed zapisem (idempotentność)
+                string backup = bbsDlg.FileName + ".bak";
+                System.IO.File.Copy(bbsDlg.FileName, backup, overwrite: true);
+                ed.WriteMessage("\nBackup created: {0}", backup);
+
+                ed.WriteMessage("\nWriting to BBS: {0}", bbsDlg.FileName);
+                var result = BbsXlsWriter.Write(bbsDlg.FileName, rows);
+
+                if (result.Success)
+                    ed.WriteMessage("\nSUCCESS: {0}", result.Message);
+                else
+                    ed.WriteMessage("\n{0}", result.Message);
+            }
+            catch (System.Exception ex)
+            {
+                ed.WriteMessage("\nERROR: {0}", ex.Message);
+            }
+        }
+
         private static string BuildBbsOutputPath(string inputPath)
         {
             string dir      = System.IO.Path.GetDirectoryName(inputPath);

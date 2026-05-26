@@ -51,7 +51,12 @@ namespace AsdRcSlab
                     ("Bar Calculator", "ASD-BBC",
                      "Calculate bar cutting lengths from xlsx export (BS 8666:2020). "
                      + "Input: bar export xlsx; output: <name>_calculated.xlsx "
-                     + "with raw + final lengths.")
+                     + "with raw + final lengths."),
+                    ("BBS Write", "ASD-BBS-WRITE",
+                     "Write calculated bar lengths to target BBS file (.xls/.xlsx). "
+                     + "Clears existing data in BOTTOM/TOP LAYER sections, writes "
+                     + "new rows with proper formatting (code 00 → STR, link bars "
+                     + "skip C/D columns). Creates .bak backup before write.")
                 }, columnsPerRow: 1));
 
             ribbon.Tabs.Add(tab);
