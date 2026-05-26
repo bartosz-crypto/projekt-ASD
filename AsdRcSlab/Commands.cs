@@ -2528,6 +2528,66 @@ namespace AsdRcSlab
             }
         }
 
+        [CommandMethod("ASD-BBS-PREVIEW")]
+        public void RunBbsPreview()
+        {
+            var doc = AcApp.DocumentManager.MdiActiveDocument;
+            if (doc == null) return;
+            var ed = doc.Editor;
+
+            // 1. Czytaj layouty z aktualnego drawingu
+            var layouts = DrawingTitleBlockReader.ReadAllLayouts(doc);
+            if (layouts.Count == 0)
+            {
+                ed.WriteMessage(
+                    "\nNo layouts with A1-BL title block found in current drawing.");
+                return;
+            }
+
+            // 2. DEBUG output: wszystkie atrybuty pierwszego layoutu
+            ed.WriteMessage("\n=== Layout discovery ===");
+            ed.WriteMessage("\nFound {0} layouts with A1-BL.", layouts.Count);
+            ed.WriteMessage("\nAttributes of first layout '{0}':",
+                layouts[0].LayoutName);
+            foreach (var kv in layouts[0].Attributes)
+                ed.WriteMessage("\n  {0} = '{1}'", kv.Key, kv.Value);
+
+            // 3. Pokaż dialog
+            var initial = BbsGenerationContext.BuildInitialFromLayouts(layouts);
+            var dlg = new BbsGeneratorDialog(initial);
+            var ok = AcApp.ShowModalWindow(AcApp.MainWindow.Handle, dlg, false);
+            if (ok != true)
+            {
+                ed.WriteMessage("\nCancelled.");
+                return;
+            }
+
+            // 4. Wypisz zebrane dane (test preview)
+            var ctx = dlg.Result;
+            ed.WriteMessage("\n=== BBS Generation Context ===");
+            ed.WriteMessage("\nContract No.: {0}", ctx.ContractNo);
+            ed.WriteMessage("\nAddress:");
+            ed.WriteMessage("\n  Line 1: {0}", ctx.AddressLine1);
+            ed.WriteMessage("\n  Line 2: {0}", ctx.AddressLine2);
+            ed.WriteMessage("\n  Line 3: {0}", ctx.AddressLine3);
+            ed.WriteMessage("\nRevision: {0}", ctx.Revision);
+            ed.WriteMessage("\nPlot suffix: {0}", ctx.PlotSuffix);
+
+            var bottom = ctx.BottomLayouts;
+            var top    = ctx.TopLayouts;
+            ed.WriteMessage(
+                "\nBOTTOM layouts ({0}): {1}",
+                bottom.Count,
+                string.Join(", ",
+                    bottom.ConvertAll(l => l.DrawingNumber ?? l.LayoutName)));
+            ed.WriteMessage(
+                "\nTOP layouts ({0}): {1}",
+                top.Count,
+                string.Join(", ",
+                    top.ConvertAll(l => l.DrawingNumber ?? l.LayoutName)));
+            ed.WriteMessage("\n=== end ===\n");
+        }
+
         private static string BuildBbsOutputPath(string inputPath)
         {
             string dir      = System.IO.Path.GetDirectoryName(inputPath);

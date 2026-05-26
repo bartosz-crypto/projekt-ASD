@@ -1,0 +1,104 @@
+<Window x:Class="AsdRcSlab.BbsGeneratorDialog"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        Title="Generate BBS"
+        Width="700" Height="600"
+        WindowStartupLocation="CenterOwner">
+    <Grid Margin="10">
+        <Grid.RowDefinitions>
+            <RowDefinition Height="Auto"/>
+            <RowDefinition Height="*"/>
+            <RowDefinition Height="Auto"/>
+            <RowDefinition Height="Auto"/>
+        </Grid.RowDefinitions>
+
+        <!-- Layout assignments -->
+        <TextBlock Grid.Row="0" Text="Drawing layouts — assign to BOTTOM / TOP / Skip:"
+                   FontWeight="Bold" Margin="0,0,0,5"/>
+        <DataGrid Grid.Row="1" x:Name="LayoutsGrid"
+                  AutoGenerateColumns="False"
+                  CanUserAddRows="False"
+                  CanUserDeleteRows="False"
+                  HeadersVisibility="Column">
+            <DataGrid.Columns>
+                <DataGridTextColumn Header="Layout"
+                                    Binding="{Binding Layout.LayoutName}"
+                                    IsReadOnly="True" Width="120"/>
+                <DataGridTextColumn Header="Drawing Number"
+                                    Binding="{Binding Layout.DrawingNumber}"
+                                    IsReadOnly="True" Width="200"/>
+                <DataGridComboBoxColumn Header="Assignment"
+                                        SelectedItemBinding="{Binding Assignment, UpdateSourceTrigger=PropertyChanged}"
+                                        Width="120">
+                    <DataGridComboBoxColumn.ElementStyle>
+                        <Style TargetType="ComboBox">
+                            <Setter Property="ItemsSource"
+                                    Value="{Binding DataContext.AssignmentOptions, RelativeSource={RelativeSource AncestorType=Window}}"/>
+                        </Style>
+                    </DataGridComboBoxColumn.ElementStyle>
+                    <DataGridComboBoxColumn.EditingElementStyle>
+                        <Style TargetType="ComboBox">
+                            <Setter Property="ItemsSource"
+                                    Value="{Binding DataContext.AssignmentOptions, RelativeSource={RelativeSource AncestorType=Window}}"/>
+                        </Style>
+                    </DataGridComboBoxColumn.EditingElementStyle>
+                </DataGridComboBoxColumn>
+            </DataGrid.Columns>
+        </DataGrid>
+
+        <!-- Title block fields -->
+        <Grid Grid.Row="2" Margin="0,10,0,10">
+            <Grid.RowDefinitions>
+                <RowDefinition Height="Auto"/>
+                <RowDefinition Height="Auto"/>
+                <RowDefinition Height="Auto"/>
+                <RowDefinition Height="Auto"/>
+                <RowDefinition Height="Auto"/>
+                <RowDefinition Height="Auto"/>
+            </Grid.RowDefinitions>
+            <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="130"/>
+                <ColumnDefinition Width="*"/>
+            </Grid.ColumnDefinitions>
+
+            <TextBlock Grid.Row="0" Grid.Column="0" Text="Contract No.:"
+                       VerticalAlignment="Center"/>
+            <TextBox   Grid.Row="0" Grid.Column="1" x:Name="ContractNoBox"
+                       Margin="0,2"/>
+
+            <TextBlock Grid.Row="1" Grid.Column="0" Text="Address line 1:"
+                       VerticalAlignment="Center"/>
+            <TextBox   Grid.Row="1" Grid.Column="1" x:Name="Address1Box"
+                       Margin="0,2"/>
+
+            <TextBlock Grid.Row="2" Grid.Column="0" Text="Address line 2:"
+                       VerticalAlignment="Center"/>
+            <TextBox   Grid.Row="2" Grid.Column="1" x:Name="Address2Box"
+                       Margin="0,2"/>
+
+            <TextBlock Grid.Row="3" Grid.Column="0" Text="Address line 3:"
+                       VerticalAlignment="Center"/>
+            <TextBox   Grid.Row="3" Grid.Column="1" x:Name="Address3Box"
+                       Margin="0,2"/>
+
+            <TextBlock Grid.Row="4" Grid.Column="0" Text="Revision:"
+                       VerticalAlignment="Center"/>
+            <TextBox   Grid.Row="4" Grid.Column="1" x:Name="RevisionBox"
+                       Margin="0,2"/>
+
+            <TextBlock Grid.Row="5" Grid.Column="0" Text="Plot suffix:"
+                       VerticalAlignment="Center"/>
+            <TextBox   Grid.Row="5" Grid.Column="1" x:Name="PlotSuffixBox"
+                       Margin="0,2"
+                       ToolTip="Used in A3 description, e.g. 'PLOT 1-8' or 'GARAGE 3'"/>
+        </Grid>
+
+        <!-- Buttons -->
+        <StackPanel Grid.Row="3" Orientation="Horizontal" HorizontalAlignment="Right">
+            <Button Content="OK"     Width="80" Height="28" Margin="0,0,5,0"
+                    Click="OnOkClick" IsDefault="True"/>
+            <Button Content="Cancel" Width="80" Height="28"
+                    Click="OnCancelClick" IsCancel="True"/>
+        </StackPanel>
+    </Grid>
+</Window>
