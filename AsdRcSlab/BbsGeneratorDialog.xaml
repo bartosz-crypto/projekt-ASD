@@ -55,40 +55,50 @@
                 <RowDefinition Height="Auto"/>
                 <RowDefinition Height="Auto"/>
                 <RowDefinition Height="Auto"/>
+                <RowDefinition Height="Auto"/>
             </Grid.RowDefinitions>
             <Grid.ColumnDefinitions>
                 <ColumnDefinition Width="130"/>
                 <ColumnDefinition Width="*"/>
             </Grid.ColumnDefinitions>
 
-            <TextBlock Grid.Row="0" Grid.Column="0" Text="Contract No.:"
+            <!-- Row 0: Template BBS (NOWE) -->
+            <TextBlock Grid.Row="0" Grid.Column="0" Text="Template BBS:"
                        VerticalAlignment="Center"/>
-            <TextBox   Grid.Row="0" Grid.Column="1" x:Name="ContractNoBox"
+            <DockPanel Grid.Row="0" Grid.Column="1">
+                <Button DockPanel.Dock="Right" Width="80" Content="Browse..."
+                        Margin="5,2,0,2" Click="OnTemplateBrowseClick"/>
+                <TextBox x:Name="TemplateBox" Margin="0,2"/>
+            </DockPanel>
+
+            <TextBlock Grid.Row="1" Grid.Column="0" Text="Contract No.:"
+                       VerticalAlignment="Center"/>
+            <TextBox   Grid.Row="1" Grid.Column="1" x:Name="ContractNoBox"
                        Margin="0,2"/>
 
-            <TextBlock Grid.Row="1" Grid.Column="0" Text="Address line 1:"
+            <TextBlock Grid.Row="2" Grid.Column="0" Text="Address line 1:"
                        VerticalAlignment="Center"/>
-            <TextBox   Grid.Row="1" Grid.Column="1" x:Name="Address1Box"
+            <TextBox   Grid.Row="2" Grid.Column="1" x:Name="Address1Box"
                        Margin="0,2"/>
 
-            <TextBlock Grid.Row="2" Grid.Column="0" Text="Address line 2:"
+            <TextBlock Grid.Row="3" Grid.Column="0" Text="Address line 2:"
                        VerticalAlignment="Center"/>
-            <TextBox   Grid.Row="2" Grid.Column="1" x:Name="Address2Box"
+            <TextBox   Grid.Row="3" Grid.Column="1" x:Name="Address2Box"
                        Margin="0,2"/>
 
-            <TextBlock Grid.Row="3" Grid.Column="0" Text="Address line 3:"
+            <TextBlock Grid.Row="4" Grid.Column="0" Text="Address line 3:"
                        VerticalAlignment="Center"/>
-            <TextBox   Grid.Row="3" Grid.Column="1" x:Name="Address3Box"
+            <TextBox   Grid.Row="4" Grid.Column="1" x:Name="Address3Box"
                        Margin="0,2"/>
 
-            <TextBlock Grid.Row="4" Grid.Column="0" Text="Revision:"
+            <TextBlock Grid.Row="5" Grid.Column="0" Text="Revision:"
                        VerticalAlignment="Center"/>
-            <TextBox   Grid.Row="4" Grid.Column="1" x:Name="RevisionBox"
+            <TextBox   Grid.Row="5" Grid.Column="1" x:Name="RevisionBox"
                        Margin="0,2"/>
 
-            <TextBlock Grid.Row="5" Grid.Column="0" Text="Plot suffix:"
+            <TextBlock Grid.Row="6" Grid.Column="0" Text="Plot suffix:"
                        VerticalAlignment="Center"/>
-            <TextBox   Grid.Row="5" Grid.Column="1" x:Name="PlotSuffixBox"
+            <TextBox   Grid.Row="6" Grid.Column="1" x:Name="PlotSuffixBox"
                        Margin="0,2"
                        ToolTip="Used in A3 description, e.g. 'PLOT 1-8' or 'GARAGE 3'"/>
         </Grid>

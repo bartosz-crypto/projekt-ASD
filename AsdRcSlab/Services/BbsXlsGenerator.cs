@@ -126,7 +126,7 @@ namespace AsdRcSlab
                 string sheetName = BuildSheetName(bottomPrefix, p, bottomPages);
                 int newIdx = wb.GetSheetIndex(newSheet.SheetName);
                 wb.SetSheetName(newIdx, sheetName);
-                CopyColumnWidths(templateSheet, newSheet);
+                CopyColumnWidthsAndStructure(templateSheet, newSheet);
 
                 var pageBars = bottom
                     .Skip((p - 1) * capacity)
@@ -162,7 +162,7 @@ namespace AsdRcSlab
                 string sheetName = BuildSheetName(topPrefix, p, topPages);
                 int newIdx = wb.GetSheetIndex(newSheet.SheetName);
                 wb.SetSheetName(newIdx, sheetName);
-                CopyColumnWidths(templateSheet, newSheet);
+                CopyColumnWidthsAndStructure(templateSheet, newSheet);
 
                 var pageBars = top
                     .Skip((p - 1) * capacity)
@@ -234,18 +234,44 @@ namespace AsdRcSlab
         }
 
         /// <summary>
-        /// Kopiuje szerokości kolumn z source sheet do destination sheet.
-        /// NPOI HSSF CloneSheet nie zawsze kopiuje column widths poprawnie —
-        /// efekt to "rozjechana" tabela w klonowanym arkuszu.
+        /// Kopiuje per-column widths + default column width + default row
+        /// height + merged regions z source do destination sheet. NPOI HSSF
+        /// CloneSheet czasem gubi niektóre te właściwości.
         /// </summary>
-        private static void CopyColumnWidths(
+        private static void CopyColumnWidthsAndStructure(
             ISheet source, ISheet dest, int maxCol = 30)
         {
+            // 1. Default column width + default row height
+            dest.DefaultColumnWidth = source.DefaultColumnWidth;
+            dest.DefaultRowHeight   = source.DefaultRowHeight;
+
+            // 2. Per-column widths
             for (int c = 0; c < maxCol; c++)
             {
                 int width = source.GetColumnWidth(c);
                 dest.SetColumnWidth(c, width);
             }
+
+            // 3. Merged regions — verify they were copied, dodaj brakujące
+            var existingKeys = new System.Collections.Generic.HashSet<string>();
+            for (int i = 0; i < dest.NumMergedRegions; i++)
+            {
+                var r = dest.GetMergedRegion(i);
+                existingKeys.Add(MergedRegionKey(r));
+            }
+            for (int i = 0; i < source.NumMergedRegions; i++)
+            {
+                var r = source.GetMergedRegion(i);
+                if (!existingKeys.Contains(MergedRegionKey(r)))
+                    dest.AddMergedRegion(r);
+            }
+        }
+
+        private static string MergedRegionKey(
+            NPOI.SS.Util.CellRangeAddress r)
+        {
+            return string.Format("{0}-{1}-{2}-{3}",
+                r.FirstRow, r.LastRow, r.FirstColumn, r.LastColumn);
         }
 
         /// <summary>
@@ -258,7 +284,7 @@ namespace AsdRcSlab
         ///   [RC010, RC011, RC012, RC013] → ["RC010, RC011,", "RC012, RC013"]
         /// </summary>
         private static List<string> BuildDrgListLines(
-            List<BbsLayoutInfo> layouts, int maxPerLine = 2)
+            List<BbsLayoutInfo> layouts, int maxPerLine = 1)
         {
             var suffixes = new List<string>();
             foreach (var lay in layouts)

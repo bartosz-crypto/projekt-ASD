@@ -2502,19 +2502,7 @@ namespace AsdRcSlab
                 return;
             }
 
-            // 3. Template BBS (jednoarkuszowy)
-            var templateDlg = new Microsoft.Win32.OpenFileDialog
-            {
-                Title  = "Select BBS TEMPLATE (.xls or .xlsx)",
-                Filter = "Excel (*.xls;*.xlsx)|*.xls;*.xlsx"
-            };
-            if (templateDlg.ShowDialog() != true)
-            {
-                ed.WriteMessage("\nCancelled.");
-                return;
-            }
-
-            // 4. Output path (nowy plik — SaveFileDialog)
+            // 3. Output path (nowy plik — SaveFileDialog)
             var outputDlg = new Microsoft.Win32.SaveFileDialog
             {
                 Title        = "Save new BBS as...",
@@ -2528,7 +2516,7 @@ namespace AsdRcSlab
                 return;
             }
 
-            // 5. Pokaż dialog BBS Generator (z p103a)
+            // 4. WPF dialog (template wewnątrz + layout assignments + title block)
             var initial = BbsGenerationContext.BuildInitialFromLayouts(layouts);
             var dlg = new BbsGeneratorDialog(initial);
             var ok = AcApp.ShowModalWindow(AcApp.MainWindow.Handle, dlg, false);
@@ -2537,20 +2525,19 @@ namespace AsdRcSlab
                 ed.WriteMessage("\nCancelled.");
                 return;
             }
-            var context = dlg.Result;
+            var context      = dlg.Result;
+            string templatePath = dlg.SelectedTemplatePath;
 
-            // 6. Wczytaj input xlsx + generuj
+            // 5. Wczytaj input xlsx + generuj
             try
             {
                 ed.WriteMessage("\nReading input: {0}", inputDlg.FileName);
                 var rows = BbsXlsxReader.Read(inputDlg.FileName);
                 ed.WriteMessage("\nLoaded {0} bar rows.", rows.Count);
 
-                ed.WriteMessage(
-                    "\nGenerating BBS using template: {0}",
-                    templateDlg.FileName);
+                ed.WriteMessage("\nUsing template: {0}", templatePath);
                 var result = BbsXlsGenerator.Generate(
-                    context, rows, templateDlg.FileName, outputDlg.FileName);
+                    context, rows, templatePath, outputDlg.FileName);
 
                 if (result.Success)
                 {
@@ -2566,6 +2553,92 @@ namespace AsdRcSlab
             {
                 ed.WriteMessage("\nERROR: {0}", ex.Message);
             }
+        }
+
+        [CommandMethod("ASD-BBS-DUMP-WIDTHS")]
+        public void RunBbsDumpWidths()
+        {
+            var doc = AcApp.DocumentManager.MdiActiveDocument;
+            if (doc == null) return;
+            var ed = doc.Editor;
+
+            var dlg = new Microsoft.Win32.OpenFileDialog
+            {
+                Title  = "Select BBS file to dump widths",
+                Filter = "Excel (*.xls;*.xlsx)|*.xls;*.xlsx"
+            };
+            if (dlg.ShowDialog() != true) return;
+
+            try
+            {
+                using (var fs = new System.IO.FileStream(
+                    dlg.FileName, System.IO.FileMode.Open,
+                    System.IO.FileAccess.Read,
+                    System.IO.FileShare.ReadWrite))
+                {
+                    NPOI.SS.UserModel.IWorkbook wb;
+                    string ext = System.IO.Path.GetExtension(
+                        dlg.FileName).ToLowerInvariant();
+                    if (ext == ".xls")
+                        wb = new NPOI.HSSF.UserModel.HSSFWorkbook(fs);
+                    else
+                        wb = new NPOI.XSSF.UserModel.XSSFWorkbook(fs);
+
+                    ed.WriteMessage("\n=== Widths dump: {0} ===", dlg.FileName);
+                    ed.WriteMessage("\nSheets: {0}", wb.NumberOfSheets);
+
+                    for (int s = 0; s < wb.NumberOfSheets; s++)
+                    {
+                        var sheet = wb.GetSheetAt(s);
+                        ed.WriteMessage(
+                            "\n\nSheet[{0}] '{1}':", s, sheet.SheetName);
+                        ed.WriteMessage(
+                            "\n  DefaultColumnWidth: {0}",
+                            sheet.DefaultColumnWidth);
+                        ed.WriteMessage(
+                            "\n  DefaultRowHeight: {0}",
+                            sheet.DefaultRowHeight);
+                        ed.WriteMessage(
+                            "\n  NumMergedRegions: {0}",
+                            sheet.NumMergedRegions);
+
+                        // Column widths A-AC (0-28)
+                        var sb = new System.Text.StringBuilder();
+                        sb.Append("\n  ColumnWidths: ");
+                        for (int c = 0; c <= 28; c++)
+                        {
+                            string letter = ColLetter(c);
+                            int w = sheet.GetColumnWidth(c);
+                            if (c > 0) sb.Append(", ");
+                            sb.AppendFormat("{0}={1}", letter, w);
+                        }
+                        ed.WriteMessage(sb.ToString());
+
+                        // First 10 merged regions
+                        int maxMerge = System.Math.Min(sheet.NumMergedRegions, 10);
+                        for (int i = 0; i < maxMerge; i++)
+                        {
+                            var r = sheet.GetMergedRegion(i);
+                            ed.WriteMessage(
+                                "\n  Merged[{0}]: rows {1}-{2}, cols {3}-{4}",
+                                i, r.FirstRow, r.LastRow,
+                                r.FirstColumn, r.LastColumn);
+                        }
+                    }
+                    wb.Close();
+                    ed.WriteMessage("\n=== end ===\n");
+                }
+            }
+            catch (System.Exception ex)
+            {
+                ed.WriteMessage("\nERROR: {0}", ex.Message);
+            }
+        }
+
+        private static string ColLetter(int c)
+        {
+            if (c < 26) return ((char)('A' + c)).ToString();
+            return "A" + ((char)('A' + c - 26)).ToString();
         }
 
         private static string BuildBbsOutputPath(string inputPath)
