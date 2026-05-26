@@ -31,7 +31,8 @@ namespace AsdRcSlab
             // = LabelRow (etykieta jest w tym samym wierszu co 1. wiersz danych)
         public int LastDataRow { get; set; }
             // 0-based ostatni wiersz z danymi (B != null)
-        public int DataRowCount
+        // Pojemność sekcji (niezależna od obecności danych — działa na pustym template)
+        public int CapacityRows
         {
             get { return LastDataRow - FirstDataRow + 1; }
         }

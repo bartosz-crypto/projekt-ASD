@@ -93,20 +93,20 @@ namespace AsdRcSlab
                     "Found {0} top-layer bars in input but BBS has no "
                     + "TOP LAYER section.", top.Count);
 
-            if (bottomSec != null && bottom.Count > bottomSec.DataRowCount)
+            if (bottomSec != null && bottom.Count > bottomSec.CapacityRows)
                 return Abort(
                     "BOTTOM overflow: {0} bars to write but section has "
                     + "only {1} rows (sheet '{2}', rows {3}-{4}). "
                     + "Auto-extend layout will be added later (p102+).",
-                    bottom.Count, bottomSec.DataRowCount,
+                    bottom.Count, bottomSec.CapacityRows,
                     bottomSheet.SheetName,
                     bottomSec.FirstDataRow + 1, bottomSec.LastDataRow + 1);
-            if (topSec != null && top.Count > topSec.DataRowCount)
+            if (topSec != null && top.Count > topSec.CapacityRows)
                 return Abort(
                     "TOP overflow: {0} bars to write but section has "
                     + "only {1} rows (sheet '{2}', rows {3}-{4}). "
                     + "Auto-extend layout will be added later (p102+).",
-                    top.Count, topSec.DataRowCount,
+                    top.Count, topSec.CapacityRows,
                     topSheet.SheetName,
                     topSec.FirstDataRow + 1, topSec.LastDataRow + 1);
 
@@ -181,16 +181,18 @@ namespace AsdRcSlab
                 var row = sheet.GetRow(r);
                 if (row == null) continue;
                 bool hadSomething = false;
+                // Zbieram cells do usunięcia (nie można modyfikować podczas iteracji)
+                var toRemove = new List<ICell>();
                 for (int c = ColB; c <= ColM; c++)
                 {
                     var cell = row.GetCell(c);
-                    if (cell != null
-                        && cell.CellType != CellType.Blank)
+                    if (cell != null && cell.CellType != CellType.Blank)
                     {
                         hadSomething = true;
-                        cell.SetCellType(CellType.Blank);
+                        toRemove.Add(cell);
                     }
                 }
+                foreach (var cell in toRemove) row.RemoveCell(cell);
                 if (hadSomething) cleared++;
             }
             return cleared;
@@ -290,7 +292,7 @@ namespace AsdRcSlab
         private static void Blank(IRow row, int col)
         {
             var c = row.GetCell(col);
-            if (c != null) c.SetCellType(CellType.Blank);
+            if (c != null) row.RemoveCell(c);
         }
     }
 }

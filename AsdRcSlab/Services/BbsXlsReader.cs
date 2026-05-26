@@ -13,7 +13,6 @@ namespace AsdRcSlab
     public static class BbsXlsReader
     {
         private const int ColumnA = 0;        // 0-indexed (NPOI)
-        private const int ColumnB = 1;        // Bar mark
 
         public static BbsXlsLayoutInfo DetectLayout(string path)
         {
@@ -59,6 +58,8 @@ namespace AsdRcSlab
         {
             int lastRow = sheet.LastRowNum;
 
+            // Krok 1: znajdź etykiety BOTTOM/TOP LAYER w kolumnie A
+            //         + wiersz "Accessories" jako boundary końcowe.
             int? bottomLabelRow = null;
             int? topLabelRow    = null;
             for (int r = 0; r <= lastRow; r++)
@@ -71,54 +72,55 @@ namespace AsdRcSlab
                     bottomLabelRow = r;
                 else if (aUpper == "TOP LAYER" && !topLabelRow.HasValue)
                     topLabelRow = r;
-                else if (aUpper.StartsWith("ACCESSORIES") && !info.AccessoriesRow.HasValue)
+                else if (aUpper.StartsWith("ACCESSORIES")
+                         && !info.AccessoriesRow.HasValue)
                     info.AccessoriesRow = r;
             }
 
-            int boundary = info.AccessoriesRow ?? lastRow;
+            // Krok 2: dla każdej etykiety oblicz zakres jako PEŁNĄ POJEMNOŚĆ
+            //         od label_row do (next_label - 1) lub (accessories - 1).
+            //         NIE skanujemy kolumny B — działa na pustym template.
+            int endBoundary;
+            if (info.AccessoriesRow.HasValue)
+                endBoundary = info.AccessoriesRow.Value;
+            else
+                endBoundary = lastRow + 1;  // brak accessories — bierzemy cały sheet
 
             if (bottomLabelRow.HasValue)
             {
-                int firstBottom = bottomLabelRow.Value;
-                int lastBottom = FindLastDataRow(
-                    sheet, firstBottom,
-                    topLabelRow.HasValue ? topLabelRow.Value - 1 : boundary - 1);
-                if (lastBottom >= firstBottom)
+                int first = bottomLabelRow.Value;
+                int last;
+                if (topLabelRow.HasValue && topLabelRow.Value > first)
+                    last = topLabelRow.Value - 1;
+                else
+                    last = endBoundary - 1;
+
+                if (last >= first)
                 {
                     info.BottomLayer = new BbsLayerSection
                     {
-                        LabelRow     = firstBottom,
-                        FirstDataRow = firstBottom,
-                        LastDataRow  = lastBottom
+                        LabelRow     = first,
+                        FirstDataRow = first,
+                        LastDataRow  = last
                     };
                 }
             }
 
             if (topLabelRow.HasValue)
             {
-                int firstTop = topLabelRow.Value;
-                int lastTop  = FindLastDataRow(sheet, firstTop, boundary - 1);
-                if (lastTop >= firstTop)
+                int first = topLabelRow.Value;
+                int last  = endBoundary - 1;
+
+                if (last >= first)
                 {
                     info.TopLayer = new BbsLayerSection
                     {
-                        LabelRow     = firstTop,
-                        FirstDataRow = firstTop,
-                        LastDataRow  = lastTop
+                        LabelRow     = first,
+                        FirstDataRow = first,
+                        LastDataRow  = last
                     };
                 }
             }
-        }
-
-        private static int FindLastDataRow(ISheet sheet, int firstRow, int maxRow)
-        {
-            int last = firstRow - 1;
-            for (int r = firstRow; r <= maxRow; r++)
-            {
-                string b = GetCellString(sheet, r, ColumnB);
-                if (!string.IsNullOrWhiteSpace(b)) last = r;
-            }
-            return last;
         }
 
         private static string GetCellString(ISheet sheet, int row, int col)
