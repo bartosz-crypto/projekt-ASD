@@ -2528,6 +2528,106 @@ namespace AsdRcSlab
             }
         }
 
+        [CommandMethod("ASD-BBS-DUMP")]
+        public void RunBbsDump()
+        {
+            var doc = AcApp.DocumentManager.MdiActiveDocument;
+            if (doc == null) return;
+            var ed = doc.Editor;
+
+            var dlg = new Microsoft.Win32.OpenFileDialog
+            {
+                Title  = "Select BBS file to DUMP (diagnostic)",
+                Filter = "Excel (*.xls;*.xlsx)|*.xls;*.xlsx"
+            };
+            if (dlg.ShowDialog() != true) return;
+
+            try
+            {
+                using (var fs = new System.IO.FileStream(
+                    dlg.FileName, System.IO.FileMode.Open,
+                    System.IO.FileAccess.Read,
+                    System.IO.FileShare.ReadWrite))
+                {
+                    NPOI.SS.UserModel.IWorkbook wb;
+                    string ext = System.IO.Path.GetExtension(
+                        dlg.FileName).ToLowerInvariant();
+                    if (ext == ".xls")
+                        wb = new NPOI.HSSF.UserModel.HSSFWorkbook(fs);
+                    else
+                        wb = new NPOI.XSSF.UserModel.XSSFWorkbook(fs);
+
+                    ed.WriteMessage("\n=== DUMP: {0} ===", dlg.FileName);
+                    ed.WriteMessage("\nSheets: {0}", wb.NumberOfSheets);
+
+                    for (int s = 0; s < wb.NumberOfSheets; s++)
+                    {
+                        var sheet = wb.GetSheetAt(s);
+                        ed.WriteMessage(
+                            "\n\nSheet[{0}] '{1}', rows 0..{2}:",
+                            s, sheet.SheetName, sheet.LastRowNum);
+
+                        // Dump pierwsze 40 wierszy, kolumny A-M (0-12)
+                        int maxR = System.Math.Min(40, sheet.LastRowNum);
+                        for (int r = 0; r <= maxR; r++)
+                        {
+                            var row = sheet.GetRow(r);
+                            if (row == null) continue;
+                            var sb = new System.Text.StringBuilder();
+                            bool any = false;
+                            for (int c = 0; c <= 12; c++)
+                            {
+                                var cell = row.GetCell(c);
+                                string txt = CellTxt(cell);
+                                if (!string.IsNullOrEmpty(txt))
+                                {
+                                    if (any) sb.Append(" | ");
+                                    sb.AppendFormat(
+                                        "{0}{1}={2}",
+                                        ColLetter(c), r + 1, txt);
+                                    any = true;
+                                }
+                            }
+                            if (any)
+                                ed.WriteMessage("\n  {0}", sb);
+                        }
+                    }
+                    wb.Close();
+                    ed.WriteMessage("\n=== end dump ===\n");
+                }
+            }
+            catch (System.Exception ex)
+            {
+                ed.WriteMessage("\nERROR: {0}", ex.Message);
+            }
+        }
+
+        private static string CellTxt(NPOI.SS.UserModel.ICell c)
+        {
+            if (c == null) return "";
+            switch (c.CellType)
+            {
+                case NPOI.SS.UserModel.CellType.Blank:
+                    return "[blank]";
+                case NPOI.SS.UserModel.CellType.String:
+                    return "\"" + c.StringCellValue + "\"";
+                case NPOI.SS.UserModel.CellType.Numeric:
+                    return c.NumericCellValue.ToString(
+                        System.Globalization.CultureInfo.InvariantCulture);
+                case NPOI.SS.UserModel.CellType.Formula:
+                    return "[F]" + c.CellFormula;
+                case NPOI.SS.UserModel.CellType.Boolean:
+                    return c.BooleanCellValue.ToString();
+                default:
+                    return "?";
+            }
+        }
+
+        private static string ColLetter(int c)
+        {
+            return ((char)('A' + c)).ToString();
+        }
+
         private static string BuildBbsOutputPath(string inputPath)
         {
             string dir      = System.IO.Path.GetDirectoryName(inputPath);
