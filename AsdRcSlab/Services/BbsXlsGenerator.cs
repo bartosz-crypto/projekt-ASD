@@ -10,13 +10,13 @@ namespace AsdRcSlab
 {
     public sealed class BbsGenerateResult
     {
-        public bool   Success          { get; set; }
-        public string Message          { get; set; }
-        public int    BottomPages      { get; set; }
-        public int    TopPages         { get; set; }
+        public bool   Success           { get; set; }
+        public string Message           { get; set; }
+        public int    BottomPages       { get; set; }
+        public int    TopPages          { get; set; }
         public int    BottomBarsWritten { get; set; }
-        public int    TopBarsWritten   { get; set; }
-        public string OutputPath       { get; set; }
+        public int    TopBarsWritten    { get; set; }
+        public string OutputPath        { get; set; }
     }
 
     public static class BbsXlsGenerator
@@ -29,18 +29,15 @@ namespace AsdRcSlab
         private const int RowH7 = 6;   // Address line 3
         private const int RowB7 = 6;   // Revision value
         private const int RowL8 = 7;   // Page X of Y
-        private const int RowM5 = 4;   // Drg list
+        private const int RowM5 = 4;   // Drg list line 1 (alias dla czytelności)
 
         // Kolumny (0-indexed):
         private const int ColA = 0;
         private const int ColB = 1;
         private const int ColH = 7;
+        private const int ColI = 8;
         private const int ColL = 11;
         private const int ColM = 12;
-
-        // Accessories block — wiersze 41+ (0-indexed: 40+).
-        private const int AccessoriesStartRow = 40;
-        private const int AccessoriesEndRow   = 60;
 
         // Ostatnia kolumna danych (M):
         private const int DataColLast = 12;
@@ -84,9 +81,12 @@ namespace AsdRcSlab
                     "Template sheet must have BOTTOM LAYER label in column A. "
                     + "Plugin uses this section as base for cloning.");
 
-            int capacity          = templateSheetInfo.BottomLayer.CapacityRows;
-            int firstDataRow      = templateSheetInfo.BottomLayer.FirstDataRow;
+            int capacity           = templateSheetInfo.BottomLayer.CapacityRows;
+            int firstDataRow       = templateSheetInfo.BottomLayer.FirstDataRow;
             int templateSheetIndex = templateSheetInfo.SheetIndex;
+
+            // Referencja do template sheet — potrzebna do CopyColumnWidths
+            var templateSheet = wb.GetSheetAt(templateSheetIndex);
 
             // 3. Podziel rows
             var bottom = rows.Where(r => r.BarMark < 100).ToList();
@@ -111,18 +111,22 @@ namespace AsdRcSlab
             if (bottomPages == 0 && topPages == 0)
                 return Fail("No bars to write.");
 
+            // Tylko PIERWSZY wygenerowany sheet zachowuje pełne accessories
+            bool isFirstSheetInFile = true;
+
             // 6a. Generate BOTTOM sheets
-            string bottomDrgList = BuildDrgList(context.BottomLayouts);
-            string bottomPrefix  = BuildSheetPrefix(
+            var bottomDrgLines = BuildDrgListLines(context.BottomLayouts);
+            string bottomPrefix = BuildSheetPrefix(
                 context.BottomLayouts, context.Revision);
             int writtenBottom = 0;
 
             for (int p = 1; p <= bottomPages; p++)
             {
-                ISheet newSheet = wb.CloneSheet(templateSheetIndex);
+                ISheet newSheet  = wb.CloneSheet(templateSheetIndex);
                 string sheetName = BuildSheetName(bottomPrefix, p, bottomPages);
                 int newIdx = wb.GetSheetIndex(newSheet.SheetName);
                 wb.SetSheetName(newIdx, sheetName);
+                CopyColumnWidths(templateSheet, newSheet);
 
                 var pageBars = bottom
                     .Skip((p - 1) * capacity)
@@ -130,7 +134,7 @@ namespace AsdRcSlab
                     .ToList();
 
                 FillSheet(
-                    newSheet, context, bottomDrgList,
+                    newSheet, context, bottomDrgLines,
                     description:  BuildA3("BOTTOM LAYER", context.PlotSuffix),
                     layerLabel:   "BOTTOM LAYER",
                     pageNumber:   p,
@@ -139,23 +143,26 @@ namespace AsdRcSlab
                     capacity:     capacity,
                     pageBars:     pageBars);
 
-                if (p > 1) ClearAccessories(newSheet);
+                if (!isFirstSheetInFile)
+                    ClearAccessoriesPartial(newSheet);
+                isFirstSheetInFile = false;
 
                 writtenBottom += pageBars.Count;
             }
 
             // 6b. Generate TOP sheets
-            string topDrgList = BuildDrgList(context.TopLayouts);
-            string topPrefix  = BuildSheetPrefix(
+            var topDrgLines = BuildDrgListLines(context.TopLayouts);
+            string topPrefix = BuildSheetPrefix(
                 context.TopLayouts, context.Revision);
             int writtenTop = 0;
 
             for (int p = 1; p <= topPages; p++)
             {
-                ISheet newSheet = wb.CloneSheet(templateSheetIndex);
+                ISheet newSheet  = wb.CloneSheet(templateSheetIndex);
                 string sheetName = BuildSheetName(topPrefix, p, topPages);
                 int newIdx = wb.GetSheetIndex(newSheet.SheetName);
                 wb.SetSheetName(newIdx, sheetName);
+                CopyColumnWidths(templateSheet, newSheet);
 
                 var pageBars = top
                     .Skip((p - 1) * capacity)
@@ -163,7 +170,7 @@ namespace AsdRcSlab
                     .ToList();
 
                 FillSheet(
-                    newSheet, context, topDrgList,
+                    newSheet, context, topDrgLines,
                     description:  BuildA3("TOP LAYER", context.PlotSuffix),
                     layerLabel:   "TOP LAYER",
                     pageNumber:   p,
@@ -172,7 +179,9 @@ namespace AsdRcSlab
                     capacity:     capacity,
                     pageBars:     pageBars);
 
-                if (p > 1) ClearAccessories(newSheet);
+                if (!isFirstSheetInFile)
+                    ClearAccessoriesPartial(newSheet);
+                isFirstSheetInFile = false;
 
                 writtenTop += pageBars.Count;
             }
@@ -191,13 +200,13 @@ namespace AsdRcSlab
 
             return new BbsGenerateResult
             {
-                Success          = true,
-                BottomPages      = bottomPages,
-                TopPages         = topPages,
+                Success           = true,
+                BottomPages       = bottomPages,
+                TopPages          = topPages,
                 BottomBarsWritten = writtenBottom,
-                TopBarsWritten   = writtenTop,
-                OutputPath       = outputPath,
-                Message          = string.Format(
+                TopBarsWritten    = writtenTop,
+                OutputPath        = outputPath,
+                Message           = string.Format(
                     "Generated {0} BOTTOM page(s) ({1} bars) + "
                     + "{2} TOP page(s) ({3} bars).",
                     bottomPages, writtenBottom, topPages, writtenTop)
@@ -225,22 +234,52 @@ namespace AsdRcSlab
         }
 
         /// <summary>
-        /// Buduje listę rysunków rozdzielonych przecinkami.
-        /// Bierze człon po ostatnim "-" w DrawingNumber.
-        /// ["RH149ZS001-RC010","RH149ZS001-RC012"] → "RC010, RC012"
+        /// Kopiuje szerokości kolumn z source sheet do destination sheet.
+        /// NPOI HSSF CloneSheet nie zawsze kopiuje column widths poprawnie —
+        /// efekt to "rozjechana" tabela w klonowanym arkuszu.
         /// </summary>
-        private static string BuildDrgList(List<BbsLayoutInfo> layouts)
+        private static void CopyColumnWidths(
+            ISheet source, ISheet dest, int maxCol = 30)
         {
-            var parts = new List<string>();
+            for (int c = 0; c < maxCol; c++)
+            {
+                int width = source.GetColumnWidth(c);
+                dest.SetColumnWidth(c, width);
+            }
+        }
+
+        /// <summary>
+        /// Dzieli listę layoutów na linie tekstu (max 2 layouty per linia).
+        /// Linie nie-ostatnie kończą się przecinkiem.
+        /// Przykłady:
+        ///   [RC011]                      → ["RC011"]
+        ///   [RC010, RC012]               → ["RC010, RC012"]
+        ///   [RC010, RC012, RC013]        → ["RC010, RC012,", "RC013"]
+        ///   [RC010, RC011, RC012, RC013] → ["RC010, RC011,", "RC012, RC013"]
+        /// </summary>
+        private static List<string> BuildDrgListLines(
+            List<BbsLayoutInfo> layouts, int maxPerLine = 2)
+        {
+            var suffixes = new List<string>();
             foreach (var lay in layouts)
             {
                 string drg = lay.DrawingNumber ?? lay.LayoutName ?? "";
                 int dash = drg.LastIndexOf('-');
                 if (dash >= 0 && dash < drg.Length - 1)
                     drg = drg.Substring(dash + 1);
-                parts.Add(drg);
+                suffixes.Add(drg);
             }
-            return string.Join(", ", parts);
+
+            var lines = new List<string>();
+            for (int i = 0; i < suffixes.Count; i += maxPerLine)
+            {
+                var slice  = suffixes.Skip(i).Take(maxPerLine).ToList();
+                bool isLast = (i + maxPerLine >= suffixes.Count);
+                string joined = string.Join(", ", slice);
+                if (!isLast) joined += ",";
+                lines.Add(joined);
+            }
+            return lines;
         }
 
         /// <summary>
@@ -285,16 +324,16 @@ namespace AsdRcSlab
         /// Wypełnia jeden arkusz: title block + label + bary.
         /// </summary>
         private static void FillSheet(
-            ISheet                sheet,
-            BbsGenerationContext  context,
-            string                drgList,
-            string                description,
-            string                layerLabel,
-            int                   pageNumber,
-            int                   totalPages,
-            int                   firstDataRow,
-            int                   capacity,
-            List<BbsBarRow>       pageBars)
+            ISheet               sheet,
+            BbsGenerationContext context,
+            List<string>         drgLines,
+            string               description,
+            string               layerLabel,
+            int                  pageNumber,
+            int                  totalPages,
+            int                  firstDataRow,
+            int                  capacity,
+            List<BbsBarRow>      pageBars)
         {
             // A3 description
             SetString(sheet, RowA3, ColA, description);
@@ -310,8 +349,9 @@ namespace AsdRcSlab
             // B7 Revision
             SetString(sheet, RowB7, ColB, context.Revision ?? "");
 
-            // M5 Drg list
-            SetString(sheet, RowM5, ColM, drgList);
+            // M5, M6, M7... — Drg list (jedna linia per komórka)
+            for (int i = 0; i < drgLines.Count; i++)
+                SetString(sheet, RowM5 + i, ColM, drgLines[i]);
 
             // L8 Page X of Y
             SetString(sheet, RowL8, ColL,
@@ -337,19 +377,41 @@ namespace AsdRcSlab
             cell.SetCellValue(value);
         }
 
-        private static void ClearAccessories(ISheet sheet)
+        /// <summary>
+        /// Czyści tylko fragmenty accessories block, zachowując layout
+        /// (ramki, labele "Accessories", "Tonnage:", "Tying wire:" itd.).
+        /// Stosowane na wszystkich arkuszach OPRÓCZ pierwszego w pliku.
+        ///
+        /// Usuwa:
+        /// - Wiersz 42 (0-indexed 41): cała linia TRIC-TRAK
+        /// - Cell I43 (0-indexed [42, ColI]): HYSTOOLS line description
+        ///
+        /// Zachowuje:
+        /// - Wiersz 41: A41 "Accessories", K41 "Tonnage:", L41 wartość, M41 "t"
+        /// - Wiersz 43: A43 "Tying wire:", B43 "Y", D43 "Spacers (50):",
+        ///              F43 "bags", H43 "Deckchairs:"
+        /// </summary>
+        private static void ClearAccessoriesPartial(ISheet sheet)
         {
-            for (int r = AccessoriesStartRow; r <= AccessoriesEndRow; r++)
+            // Wiersz 42 (0-indexed 41) — TRIC-TRAK: czyść wszystkie cells
+            var row42 = sheet.GetRow(41);
+            if (row42 != null)
             {
-                var row = sheet.GetRow(r);
-                if (row == null) continue;
                 for (int c = 0; c <= DataColLast; c++)
                 {
-                    var cell = row.GetCell(c);
-                    if (cell == null) continue;
-                    if (cell.CellType != CellType.Blank)
+                    var cell = row42.GetCell(c);
+                    if (cell != null && cell.CellType != CellType.Blank)
                         cell.SetCellType(CellType.Blank);
                 }
+            }
+
+            // Cell I43 (0-indexed [42, ColI]) — HYSTOOLS: tylko ta komórka
+            var row43 = sheet.GetRow(42);
+            if (row43 != null)
+            {
+                var i43 = row43.GetCell(ColI);
+                if (i43 != null && i43.CellType != CellType.Blank)
+                    i43.SetCellType(CellType.Blank);
             }
         }
     }
