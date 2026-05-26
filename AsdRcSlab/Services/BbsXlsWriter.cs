@@ -255,6 +255,15 @@ namespace AsdRcSlab
             }
         }
 
+        /// <summary>
+        /// Public wrapper — używany przez BbsXlsGenerator aby uniknąć
+        /// duplikacji logiki per-code dimensions z p101d.
+        /// </summary>
+        public static void WriteOneRowPublic(IRow row, BbsBarRow b)
+        {
+            WriteOneRow(row, b);
+        }
+
         private static ICell GetOrCreate(IRow row, int col)
         {
             return row.GetCell(col) ?? row.CreateCell(col);

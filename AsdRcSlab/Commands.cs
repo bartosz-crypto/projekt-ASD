@@ -2479,10 +2479,21 @@ namespace AsdRcSlab
             if (doc == null) return;
             var ed = doc.Editor;
 
-            // Dialog 1: input xlsx (calculated z ASD-BBC lub b1-style)
+            // 1. Czytaj layouty z aktualnego drawingu (przed dialogiem plików —
+            //    żeby user nie wybierał plików gdy drawing nie ma layoutów)
+            var layouts = DrawingTitleBlockReader.ReadAllLayouts(doc);
+            if (layouts.Count == 0)
+            {
+                ed.WriteMessage(
+                    "\nNo layouts with A1-BL title block found. "
+                    + "Open an RC drawing with title blocks first.");
+                return;
+            }
+
+            // 2. Input xlsx (b1-style export)
             var inputDlg = new Microsoft.Win32.OpenFileDialog
             {
-                Title  = "Select INPUT xlsx (calculated or b1-style)",
+                Title  = "Select INPUT xlsx (b1-style bar export)",
                 Filter = "Excel (*.xlsx)|*.xlsx"
             };
             if (inputDlg.ShowDialog() != true)
@@ -2491,68 +2502,33 @@ namespace AsdRcSlab
                 return;
             }
 
-            // Dialog 2: target BBS .xls / .xlsx
-            var bbsDlg = new Microsoft.Win32.OpenFileDialog
+            // 3. Template BBS (jednoarkuszowy)
+            var templateDlg = new Microsoft.Win32.OpenFileDialog
             {
-                Title  = "Select TARGET BBS file (.xls or .xlsx)",
+                Title  = "Select BBS TEMPLATE (.xls or .xlsx)",
                 Filter = "Excel (*.xls;*.xlsx)|*.xls;*.xlsx"
             };
-            if (bbsDlg.ShowDialog() != true)
+            if (templateDlg.ShowDialog() != true)
             {
                 ed.WriteMessage("\nCancelled.");
                 return;
             }
 
-            try
+            // 4. Output path (nowy plik — SaveFileDialog)
+            var outputDlg = new Microsoft.Win32.SaveFileDialog
             {
-                ed.WriteMessage("\nReading input: {0}", inputDlg.FileName);
-                var rows = BbsXlsxReader.Read(inputDlg.FileName);
-                ed.WriteMessage("\nLoaded {0} bar rows.", rows.Count);
-
-                // Backup BBS przed zapisem (idempotentność)
-                string backup = bbsDlg.FileName + ".bak";
-                System.IO.File.Copy(bbsDlg.FileName, backup, overwrite: true);
-                ed.WriteMessage("\nBackup created: {0}", backup);
-
-                ed.WriteMessage("\nWriting to BBS: {0}", bbsDlg.FileName);
-                var result = BbsXlsWriter.Write(bbsDlg.FileName, rows);
-
-                if (result.Success)
-                    ed.WriteMessage("\nSUCCESS: {0}", result.Message);
-                else
-                    ed.WriteMessage("\n{0}", result.Message);
-            }
-            catch (System.Exception ex)
+                Title        = "Save new BBS as...",
+                Filter       = "Excel 97-2003 (*.xls)|*.xls|Excel (*.xlsx)|*.xlsx",
+                DefaultExt   = ".xls",
+                AddExtension = true
+            };
+            if (outputDlg.ShowDialog() != true)
             {
-                ed.WriteMessage("\nERROR: {0}", ex.Message);
-            }
-        }
-
-        [CommandMethod("ASD-BBS-PREVIEW")]
-        public void RunBbsPreview()
-        {
-            var doc = AcApp.DocumentManager.MdiActiveDocument;
-            if (doc == null) return;
-            var ed = doc.Editor;
-
-            // 1. Czytaj layouty z aktualnego drawingu
-            var layouts = DrawingTitleBlockReader.ReadAllLayouts(doc);
-            if (layouts.Count == 0)
-            {
-                ed.WriteMessage(
-                    "\nNo layouts with A1-BL title block found in current drawing.");
+                ed.WriteMessage("\nCancelled.");
                 return;
             }
 
-            // 2. DEBUG output: wszystkie atrybuty pierwszego layoutu
-            ed.WriteMessage("\n=== Layout discovery ===");
-            ed.WriteMessage("\nFound {0} layouts with A1-BL.", layouts.Count);
-            ed.WriteMessage("\nAttributes of first layout '{0}':",
-                layouts[0].LayoutName);
-            foreach (var kv in layouts[0].Attributes)
-                ed.WriteMessage("\n  {0} = '{1}'", kv.Key, kv.Value);
-
-            // 3. Pokaż dialog
+            // 5. Pokaż dialog BBS Generator (z p103a)
             var initial = BbsGenerationContext.BuildInitialFromLayouts(layouts);
             var dlg = new BbsGeneratorDialog(initial);
             var ok = AcApp.ShowModalWindow(AcApp.MainWindow.Handle, dlg, false);
@@ -2561,31 +2537,35 @@ namespace AsdRcSlab
                 ed.WriteMessage("\nCancelled.");
                 return;
             }
+            var context = dlg.Result;
 
-            // 4. Wypisz zebrane dane (test preview)
-            var ctx = dlg.Result;
-            ed.WriteMessage("\n=== BBS Generation Context ===");
-            ed.WriteMessage("\nContract No.: {0}", ctx.ContractNo);
-            ed.WriteMessage("\nAddress:");
-            ed.WriteMessage("\n  Line 1: {0}", ctx.AddressLine1);
-            ed.WriteMessage("\n  Line 2: {0}", ctx.AddressLine2);
-            ed.WriteMessage("\n  Line 3: {0}", ctx.AddressLine3);
-            ed.WriteMessage("\nRevision: {0}", ctx.Revision);
-            ed.WriteMessage("\nPlot suffix: {0}", ctx.PlotSuffix);
+            // 6. Wczytaj input xlsx + generuj
+            try
+            {
+                ed.WriteMessage("\nReading input: {0}", inputDlg.FileName);
+                var rows = BbsXlsxReader.Read(inputDlg.FileName);
+                ed.WriteMessage("\nLoaded {0} bar rows.", rows.Count);
 
-            var bottom = ctx.BottomLayouts;
-            var top    = ctx.TopLayouts;
-            ed.WriteMessage(
-                "\nBOTTOM layouts ({0}): {1}",
-                bottom.Count,
-                string.Join(", ",
-                    bottom.ConvertAll(l => l.DrawingNumber ?? l.LayoutName)));
-            ed.WriteMessage(
-                "\nTOP layouts ({0}): {1}",
-                top.Count,
-                string.Join(", ",
-                    top.ConvertAll(l => l.DrawingNumber ?? l.LayoutName)));
-            ed.WriteMessage("\n=== end ===\n");
+                ed.WriteMessage(
+                    "\nGenerating BBS using template: {0}",
+                    templateDlg.FileName);
+                var result = BbsXlsGenerator.Generate(
+                    context, rows, templateDlg.FileName, outputDlg.FileName);
+
+                if (result.Success)
+                {
+                    ed.WriteMessage("\nSUCCESS: {0}", result.Message);
+                    ed.WriteMessage("\nSaved to: {0}", result.OutputPath);
+                }
+                else
+                {
+                    ed.WriteMessage("\n{0}", result.Message);
+                }
+            }
+            catch (System.Exception ex)
+            {
+                ed.WriteMessage("\nERROR: {0}", ex.Message);
+            }
         }
 
         private static string BuildBbsOutputPath(string inputPath)
