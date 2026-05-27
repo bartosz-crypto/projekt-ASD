@@ -42,6 +42,13 @@ namespace AsdRcSlab
         // Ostatnia kolumna danych (M):
         private const int DataColLast = 12;
 
+        // Print area definition — A1:M44 (zgodnie z wzorcem RH149ZS001-BBS).
+        // Pokrywa cały obszar tabeli + accessories block, bez kolumn AB/AC.
+        private const string PrintAreaRange = "$A$1:$M$44";
+
+        // Excel limit: nazwa arkusza ≤ 31 znaków. NPOI rzuca przy dłuższych.
+        private const int MaxSheetNameLength = 31;
+
         /// <summary>
         /// Generuje nowy multi-page BBS na podstawie template + danych.
         /// </summary>
@@ -119,35 +126,50 @@ namespace AsdRcSlab
             string bottomPrefix = BuildSheetPrefix(
                 context.BottomLayouts, context.Revision);
             int writtenBottom = 0;
+            var pageErrors = new List<string>();
 
             for (int p = 1; p <= bottomPages; p++)
             {
-                ISheet newSheet  = wb.CloneSheet(templateSheetIndex);
-                string sheetName = BuildSheetName(bottomPrefix, p, bottomPages);
-                int newIdx = wb.GetSheetIndex(newSheet.SheetName);
-                wb.SetSheetName(newIdx, sheetName);
-                CopyColumnWidthsAndStructure(templateSheet, newSheet);
+                try
+                {
+                    ISheet newSheet = wb.CloneSheet(templateSheetIndex);
 
-                var pageBars = bottom
-                    .Skip((p - 1) * capacity)
-                    .Take(capacity)
-                    .ToList();
+                    string baseSheetName = BuildSheetName(bottomPrefix, p, bottomPages);
+                    string sheetName = EnsureUniqueSheetName(wb, baseSheetName);
+                    int newIdx = wb.GetSheetIndex(newSheet.SheetName);
+                    wb.SetSheetName(newIdx, sheetName);
 
-                FillSheet(
-                    newSheet, context, bottomDrgLines,
-                    description:  BuildA3("BOTTOM LAYER", context.PlotSuffix),
-                    layerLabel:   "BOTTOM LAYER",
-                    pageNumber:   p,
-                    totalPages:   bottomPages,
-                    firstDataRow: firstDataRow,
-                    capacity:     capacity,
-                    pageBars:     pageBars);
+                    CopyColumnWidthsAndStructure(templateSheet, newSheet);
 
-                if (!isFirstSheetInFile)
-                    ClearAccessoriesPartial(newSheet);
-                isFirstSheetInFile = false;
+                    var pageBars = bottom
+                        .Skip((p - 1) * capacity)
+                        .Take(capacity)
+                        .ToList();
 
-                writtenBottom += pageBars.Count;
+                    FillSheet(
+                        newSheet, context, bottomDrgLines,
+                        description:  BuildA3("BOTTOM LAYER", context.PlotSuffix),
+                        layerLabel:   "BOTTOM LAYER",
+                        pageNumber:   p,
+                        totalPages:   bottomPages,
+                        firstDataRow: firstDataRow,
+                        capacity:     capacity,
+                        pageBars:     pageBars);
+
+                    if (!isFirstSheetInFile)
+                        ClearAccessoriesPartial(newSheet);
+                    isFirstSheetInFile = false;
+
+                    // Print_Area — kluczowy fix z p103e
+                    SetSheetPrintArea(wb, newIdx);
+
+                    writtenBottom += pageBars.Count;
+                }
+                catch (Exception ex)
+                {
+                    pageErrors.Add(string.Format(
+                        "BOTTOM Page {0}/{1}: {2}", p, bottomPages, ex.Message));
+                }
             }
 
             // 6b. Generate TOP sheets
@@ -158,36 +180,56 @@ namespace AsdRcSlab
 
             for (int p = 1; p <= topPages; p++)
             {
-                ISheet newSheet  = wb.CloneSheet(templateSheetIndex);
-                string sheetName = BuildSheetName(topPrefix, p, topPages);
-                int newIdx = wb.GetSheetIndex(newSheet.SheetName);
-                wb.SetSheetName(newIdx, sheetName);
-                CopyColumnWidthsAndStructure(templateSheet, newSheet);
+                try
+                {
+                    ISheet newSheet = wb.CloneSheet(templateSheetIndex);
 
-                var pageBars = top
-                    .Skip((p - 1) * capacity)
-                    .Take(capacity)
-                    .ToList();
+                    string baseSheetName = BuildSheetName(topPrefix, p, topPages);
+                    string sheetName = EnsureUniqueSheetName(wb, baseSheetName);
+                    int newIdx = wb.GetSheetIndex(newSheet.SheetName);
+                    wb.SetSheetName(newIdx, sheetName);
 
-                FillSheet(
-                    newSheet, context, topDrgLines,
-                    description:  BuildA3("TOP LAYER", context.PlotSuffix),
-                    layerLabel:   "TOP LAYER",
-                    pageNumber:   p,
-                    totalPages:   topPages,
-                    firstDataRow: firstDataRow,
-                    capacity:     capacity,
-                    pageBars:     pageBars);
+                    CopyColumnWidthsAndStructure(templateSheet, newSheet);
 
-                if (!isFirstSheetInFile)
-                    ClearAccessoriesPartial(newSheet);
-                isFirstSheetInFile = false;
+                    var pageBars = top
+                        .Skip((p - 1) * capacity)
+                        .Take(capacity)
+                        .ToList();
 
-                writtenTop += pageBars.Count;
+                    FillSheet(
+                        newSheet, context, topDrgLines,
+                        description:  BuildA3("TOP LAYER", context.PlotSuffix),
+                        layerLabel:   "TOP LAYER",
+                        pageNumber:   p,
+                        totalPages:   topPages,
+                        firstDataRow: firstDataRow,
+                        capacity:     capacity,
+                        pageBars:     pageBars);
+
+                    if (!isFirstSheetInFile)
+                        ClearAccessoriesPartial(newSheet);
+                    isFirstSheetInFile = false;
+
+                    // Print_Area — kluczowy fix z p103e
+                    SetSheetPrintArea(wb, newIdx);
+
+                    writtenTop += pageBars.Count;
+                }
+                catch (Exception ex)
+                {
+                    pageErrors.Add(string.Format(
+                        "TOP Page {0}/{1}: {2}", p, topPages, ex.Message));
+                }
             }
 
-            // 7. Usuń oryginalny template sheet
-            wb.RemoveSheetAt(templateSheetIndex);
+            // 7. Usuń oryginalny template sheet (tylko jeśli cokolwiek zapisano)
+            if (writtenBottom + writtenTop > 0)
+                wb.RemoveSheetAt(templateSheetIndex);
+            else
+                return Fail(
+                    "All {0} page(s) failed during generation. Errors:\n  {1}",
+                    bottomPages + topPages,
+                    string.Join("\n  ", pageErrors));
 
             // 8. Zapisz
             if (File.Exists(outputPath)) File.Delete(outputPath);
@@ -198,19 +240,33 @@ namespace AsdRcSlab
             }
             wb.Close();
 
-            return new BbsGenerateResult
+            // Wynik — z informacją o błędach stron jeśli były
+            var resultObj = new BbsGenerateResult
             {
-                Success           = true,
+                Success           = pageErrors.Count == 0,
                 BottomPages       = bottomPages,
                 TopPages          = topPages,
                 BottomBarsWritten = writtenBottom,
                 TopBarsWritten    = writtenTop,
                 OutputPath        = outputPath,
-                Message           = string.Format(
+            };
+
+            if (pageErrors.Count == 0)
+            {
+                resultObj.Message = string.Format(
                     "Generated {0} BOTTOM page(s) ({1} bars) + "
                     + "{2} TOP page(s) ({3} bars).",
-                    bottomPages, writtenBottom, topPages, writtenTop)
-            };
+                    bottomPages, writtenBottom, topPages, writtenTop);
+            }
+            else
+            {
+                resultObj.Message = string.Format(
+                    "Partial success: {0} BOTTOM bars + {1} TOP bars written. "
+                    + "{2} page(s) failed:\n  {3}",
+                    writtenBottom, writtenTop, pageErrors.Count,
+                    string.Join("\n  ", pageErrors));
+            }
+            return resultObj;
         }
 
         // --- helpers ---
@@ -329,12 +385,52 @@ namespace AsdRcSlab
             return list + rev;
         }
 
+        /// <summary>
+        /// Buduje nazwę arkusza dla danej page. Truncate jeśli &gt;31 znaków
+        /// (np. dla wielu layoutów). Suffix "-Page-XofY" zawsze zachowany.
+        /// </summary>
         private static string BuildSheetName(
             string prefix, int page, int totalPages)
         {
-            if (totalPages <= 1) return prefix;
-            return string.Format(
-                "{0}-Page-{1}of{2}", prefix, page, totalPages);
+            string suffix = totalPages <= 1
+                ? "" : string.Format("-Page-{0}of{1}", page, totalPages);
+            string candidate = prefix + suffix;
+
+            if (candidate.Length <= MaxSheetNameLength)
+                return candidate;
+
+            // Trzeba skrócić prefix — suffix nigdy.
+            int maxPrefixLen = MaxSheetNameLength - suffix.Length;
+            if (maxPrefixLen < 1)
+            {
+                // Skrajny przypadek: suffix sam jest za długi.
+                string fallback = string.Format("Page-{0}of{1}", page, totalPages);
+                return fallback.Substring(0, Math.Min(MaxSheetNameLength, fallback.Length));
+            }
+            return prefix.Substring(0, maxPrefixLen) + suffix;
+        }
+
+        /// <summary>
+        /// Zwraca unikalną nazwę arkusza — jeśli "candidate" już istnieje
+        /// w workbook'u, dokleja suffix "_2", "_3", itd. (z truncate).
+        /// </summary>
+        private static string EnsureUniqueSheetName(
+            IWorkbook wb, string candidate)
+        {
+            if (wb.GetSheetIndex(candidate) < 0) return candidate;
+
+            for (int i = 2; i < 100; i++)
+            {
+                string sfx = "_" + i;
+                string baseName = candidate;
+                int totalLen = baseName.Length + sfx.Length;
+                if (totalLen > MaxSheetNameLength)
+                    baseName = baseName.Substring(0, MaxSheetNameLength - sfx.Length);
+                string attempt = baseName + sfx;
+                if (wb.GetSheetIndex(attempt) < 0) return attempt;
+            }
+            // Skrajny przypadek: zwróć candidate, niech NPOI rzuci.
+            return candidate;
         }
 
         private static string BuildA3(string layerLabel, string plotSuffix)
@@ -393,6 +489,16 @@ namespace AsdRcSlab
                 var row = sheet.GetRow(r) ?? sheet.CreateRow(r);
                 BbsXlsWriter.WriteOneRowPublic(row, pageBars[i]);
             }
+        }
+
+        /// <summary>
+        /// Ustawia Print_Area scoped do danego arkusza. NPOI HSSF/XSSF:
+        /// SetPrintArea(sheetIndex, startCol, endCol, startRow, endRow) — 0-indexed.
+        /// A=0, M=12, row 1 = 0, row 44 = 43.
+        /// </summary>
+        private static void SetSheetPrintArea(IWorkbook wb, int sheetIndex)
+        {
+            wb.SetPrintArea(sheetIndex, 0, 12, 0, 43);
         }
 
         private static void SetString(
