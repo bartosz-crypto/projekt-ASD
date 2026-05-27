@@ -635,5 +635,42 @@ namespace AsdRcSlab
                     i43.SetCellType(CellType.Blank);
             }
         }
+
+        /// <summary>
+        /// Sugeruje nazwę BBS na podstawie ścieżki aktualnego .dwg.
+        /// Transform: "RH149...-DR-...PLOT...-ASD.dwg" →
+        ///            "RH149...-BBS-...PLOT....xls"
+        /// Reguły:
+        ///   1. Replace "-DR-" → "-BBS-" (case sensitive)
+        ///   2. Strip suffix "-ASD" lub "- ASD" (z opcjonalną spacją) tuż przed ekstensją
+        ///   3. Zmień ekstensję na ".xls"
+        /// Jeśli .dwg nie ma "-DR-" w nazwie — zwraca &lt;basename&gt;.xls bez modyfikacji.
+        /// </summary>
+        /// <param name="dwgPath">Pełna ścieżka aktualnego .dwg (z DocumentManager).</param>
+        /// <returns>Sugerowana pełna ścieżka .xls (ten sam folder, transformed name).</returns>
+        public static string SuggestBbsName(string dwgPath)
+        {
+            if (string.IsNullOrWhiteSpace(dwgPath)) return null;
+
+            string dir      = System.IO.Path.GetDirectoryName(dwgPath) ?? "";
+            string baseName = System.IO.Path.GetFileNameWithoutExtension(dwgPath);
+            if (string.IsNullOrWhiteSpace(baseName)) return null;
+
+            string transformed = baseName;
+
+            // Krok 1: -DR- → -BBS-
+            if (transformed.Contains("-DR-"))
+                transformed = transformed.Replace("-DR-", "-BBS-");
+
+            // Krok 2: strip "\s*-\s*ASD\s*$" na końcu
+            transformed = System.Text.RegularExpressions.Regex.Replace(
+                transformed,
+                @"\s*-\s*ASD\s*$",
+                "");
+
+            transformed = transformed.Trim();
+
+            return System.IO.Path.Combine(dir, transformed + ".xls");
+        }
     }
 }

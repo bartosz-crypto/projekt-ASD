@@ -2270,6 +2270,15 @@ namespace AsdRcSlab
                 AddExtension    = true,
                 OverwritePrompt = false
             };
+
+            // Auto-suggest nazwa + folder z aktualnego .dwg
+            string suggested = BbsXlsGenerator.SuggestBbsName(doc.Name);
+            if (!string.IsNullOrWhiteSpace(suggested))
+            {
+                targetDlg.InitialDirectory = System.IO.Path.GetDirectoryName(suggested);
+                targetDlg.FileName         = System.IO.Path.GetFileName(suggested);
+            }
+
             if (targetDlg.ShowDialog() != true)
             {
                 ed.WriteMessage("\nCancelled.");
