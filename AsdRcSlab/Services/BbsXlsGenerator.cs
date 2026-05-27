@@ -231,7 +231,28 @@ namespace AsdRcSlab
                     bottomPages + topPages,
                     string.Join("\n  ", pageErrors));
 
-            // 8. Zapisz
+            // 8a. Przelicz wszystkie formuły żeby Excel pokazał aktualne wartości
+            //     od razu przy otwarciu (bez ręcznej zmiany komórki).
+            //
+            //     Bez tego — formuły są zapisywane z cached values=0 z template'a,
+            //     mimo ForceFormulaRecalculation flagi.
+            //     Excel renderuje cached values do pierwszej ręcznej edycji.
+            try
+            {
+                var evaluator = wb.GetCreationHelper().CreateFormulaEvaluator();
+                evaluator.EvaluateAll();
+            }
+            catch (Exception evalEx)
+            {
+                // Evaluator może rzucić jeśli któraś formuła ma błąd (np. źle
+                // skonstruowana referencja po clone). Nie blokujemy save — w
+                // najgorszym wypadku user zobaczy cached=0 i będzie musiał ręcznie
+                // przeliczyć w Excelu (jak przed p109).
+                System.Diagnostics.Debug.WriteLine(
+                    "[BBS] Formula evaluator failed: " + evalEx.Message);
+            }
+
+            // 8b. Zapisz
             if (File.Exists(outputPath)) File.Delete(outputPath);
             using (var fs = new FileStream(
                 outputPath, FileMode.Create, FileAccess.Write))
