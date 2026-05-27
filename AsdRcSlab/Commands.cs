@@ -2174,173 +2174,6 @@ namespace AsdRcSlab
             doc.Editor.WriteMessage("\nTODO: Transmittal — lista PDF do wyslania\n");
         }
 
-        [CommandMethod("ASD-BBC-TEST")]
-        public void RunBBSCalculatorTest()
-        {
-            var ed = AcApp.DocumentManager.MdiActiveDocument.Editor;
-            ed.WriteMessage("\n=== BS8666 Calculator PoC test ===");
-
-            // Bar 1: H12, code 21, A=665, B=215, C=665
-            // r=2*12=24 | raw=665+215+665-24-2*12=1497 | final=1500
-            var row1 = new BbsBarRow
-            {
-                BarMark = 1, TypeSize = "H12", ShapeCode = 21,
-                A = 665, B = 215, C = 665
-            };
-            AssertBar(ed, "Bar 1 (H12, code 21)", row1, 1497.0, 1500.0);
-
-            // Bar 11: H12, code 0 (straight), raw 3500
-            var row11 = new BbsBarRow
-            {
-                BarMark = 11, TypeSize = "H12", ShapeCode = 0,
-                LengthPerBar = 3500
-            };
-            AssertBar(ed, "Bar 11 (H12, code 0)", row11, 3500.0, 3500.0);
-
-            // Bar 12: H12, code 21, A=1050, B=190, C=1050
-            // raw=1050+190+1050-24-24=2242 | final=2250
-            var row12 = new BbsBarRow
-            {
-                BarMark = 12, TypeSize = "H12", ShapeCode = 21,
-                A = 1050, B = 190, C = 1050
-            };
-            AssertBar(ed, "Bar 12 (H12, code 21)", row12, 2242.0, 2250.0);
-
-            // Bar 3: H10, code 13, A=860, B=70, C=860
-            // raw = 860 + 0.57*70 + 860 - 1.6*10 = 1743.9 → final 1750
-            var row3 = new BbsBarRow
-            {
-                BarMark = 3, TypeSize = "H10", ShapeCode = 13,
-                A = 860, B = 70, C = 860
-            };
-            AssertBar(ed, "Bar 3 (H10, code 13)", row3, 1743.9, 1750.0);
-
-            // Bar 14: H12, code 51, A=410, B=365
-            // raw = 2*410 + 2*365 + max(16*12=192, 160) = 820+730+192 = 1742 → 1750
-            var row14 = new BbsBarRow
-            {
-                BarMark = 14, TypeSize = "H12", ShapeCode = 51,
-                A = 410, B = 365
-            };
-            AssertBar(ed, "Bar 14 (H12, code 51)", row14, 1742.0, 1750.0);
-
-            // Bar 13: H12, code 63, A=215, B=510
-            // raw = 2*215 + 3*510 + max(14*12=168, 150) = 430+1530+168 = 2128 → 2150
-            var row13 = new BbsBarRow
-            {
-                BarMark = 13, TypeSize = "H12", ShapeCode = 63,
-                A = 215, B = 510
-            };
-            AssertBar(ed, "Bar 13 (H12, code 63)", row13, 2128.0, 2150.0);
-
-            // synth code 22: H12, A=B=C=D=500. r=24, d=12.
-            // raw = 2000 - 1.5*24 - 3*12 = 1928 → 1950
-            var rowS22 = new BbsBarRow
-            {
-                BarMark = 901, TypeSize = "H12", ShapeCode = 22,
-                A = 500, B = 500, C = 500, D = 500
-            };
-            AssertBar(ed, "synth (H12, code 22)", rowS22, 1928.0, 1950.0);
-
-            // synth code 33: H12, A=200, B=400, C=200.
-            // raw = 2*200 + 1.7*400 + 2*200 - 4*12 = 1432 → 1450
-            var rowS33 = new BbsBarRow
-            {
-                BarMark = 902, TypeSize = "H12", ShapeCode = 33,
-                A = 200, B = 400, C = 200
-            };
-            AssertBar(ed, "synth (H12, code 33)", rowS33, 1432.0, 1450.0);
-
-            // synth code 47: H12, A=200, B=400.
-            // raw = 2*200 + 400 + max(21*12=252, 240) = 1052 → 1075
-            var rowS47 = new BbsBarRow
-            {
-                BarMark = 903, TypeSize = "H12", ShapeCode = 47,
-                A = 200, B = 400
-            };
-            AssertBar(ed, "synth (H12, code 47)", rowS47, 1052.0, 1075.0);
-
-            // synth code 75 (circular): H12, A=1000, B=200.
-            // raw = π*(1000-12) + 200 = 3303.85 → 3325
-            var rowS75 = new BbsBarRow
-            {
-                BarMark = 904, TypeSize = "H12", ShapeCode = 75,
-                A = 1000, B = 200
-            };
-            AssertBar(ed, "synth (H12, code 75)", rowS75, 3303.85, 3325.0);
-
-            // synth code 12 z E/R: H12, A=500, B=500, R=50.
-            // raw = 500 + 500 - 0.43*50 - 1.2*12 = 964.1 → 975
-            var rowS12 = new BbsBarRow
-            {
-                BarMark = 905, TypeSize = "H12", ShapeCode = 12,
-                A = 500, B = 500, EOrR = 50
-            };
-            AssertBar(ed, "synth (H12, code 12, R=50)", rowS12, 964.1, 975.0);
-
-            // synth code 12 BEZ E/R → NaN
-            var rowS12null = new BbsBarRow
-            {
-                BarMark = 906, TypeSize = "H12", ShapeCode = 12,
-                A = 500, B = 500
-            };
-            AssertNaN(ed, "synth (H12, code 12, NO E/R)", rowS12null);
-
-            // synth code 41 z E: H12, A=B=C=D=300, E=200.
-            // raw = 1400 - 2*24 - 4*12 = 1304 → 1325
-            var rowS41 = new BbsBarRow
-            {
-                BarMark = 907, TypeSize = "H12", ShapeCode = 41,
-                A = 300, B = 300, C = 300, D = 300, EOrR = 200
-            };
-            AssertBar(ed, "synth (H12, code 41, E=200)", rowS41, 1304.0, 1325.0);
-
-            // synth code 67: H12, A=1000. raw=1000 → final 1000 (exact multiple of 25)
-            var rowS67 = new BbsBarRow
-            {
-                BarMark = 908, TypeSize = "H12", ShapeCode = 67,
-                A = 1000
-            };
-            AssertBar(ed, "synth (H12, code 67)", rowS67, 1000.0, 1000.0);
-
-            // synth code 999 (unknown) → NaN
-            var rowSUnk = new BbsBarRow
-            {
-                BarMark = 909, TypeSize = "H12", ShapeCode = 999,
-                A = 500
-            };
-            AssertNaN(ed, "synth (H12, code 999 unknown)", rowSUnk);
-
-            ed.WriteMessage("\n=== koniec ===\n");
-        }
-
-        private static void AssertNaN(
-            Autodesk.AutoCAD.EditorInput.Editor ed,
-            string label, BbsBarRow row)
-        {
-            double raw   = BS8666Calculator.CalculateRawCuttingLength(row);
-            double final = BS8666Calculator.CalculateFinalCuttingLength(row);
-            bool ok = double.IsNaN(raw) && double.IsNaN(final);
-            ed.WriteMessage(
-                "\n{0}: {1} | raw={2} final={3} (expected NaN)",
-                ok ? "PASS" : "FAIL", label, raw, final);
-        }
-
-        private static void AssertBar(
-            Autodesk.AutoCAD.EditorInput.Editor ed,
-            string label, BbsBarRow row,
-            double expectedRaw, double expectedFinal)
-        {
-            double raw   = BS8666Calculator.CalculateRawCuttingLength(row);
-            double final = BS8666Calculator.CalculateFinalCuttingLength(row);
-            bool okRaw   = System.Math.Abs(raw   - expectedRaw)   < 0.5;
-            bool okFinal = System.Math.Abs(final - expectedFinal) < 0.5;
-            string status = (okRaw && okFinal) ? "PASS" : "FAIL";
-            ed.WriteMessage(
-                "\n{0}: {1} | raw={2} (exp {3}) | final={4} (exp {5})",
-                status, label, raw, expectedRaw, final, expectedFinal);
-        }
-
         [CommandMethod("ASD-BBC")]
         public void RunBbsCalculator()
         {
@@ -2351,26 +2184,6 @@ namespace AsdRcSlab
             var fileDlg = new Microsoft.Win32.OpenFileDialog
             {
                 Title  = "Select bar export xlsx (BBS Calculator)",
-                Filter = "Excel (*.xlsx)|*.xlsx"
-            };
-            if (fileDlg.ShowDialog() != true)
-            {
-                ed.WriteMessage("\nCancelled.");
-                return;
-            }
-
-            RunBbsCalculation(ed, fileDlg.FileName);
-        }
-
-        [CommandMethod("ASD-BBC-FILE-TEST")]
-        public void RunBBSCalculatorFileTest()
-        {
-            var doc = AcApp.DocumentManager.MdiActiveDocument;
-            var ed  = doc.Editor;
-
-            var fileDlg = new Microsoft.Win32.OpenFileDialog
-            {
-                Title  = "Select BBS export xlsx",
                 Filter = "Excel (*.xlsx)|*.xlsx"
             };
             if (fileDlg.ShowDialog() != true)
@@ -2402,69 +2215,6 @@ namespace AsdRcSlab
                     if (double.IsNaN(raw)) err++; else ok++;
                 }
                 ed.WriteMessage("\nSummary: {0} OK, {1} with error.", ok, err);
-            }
-            catch (System.Exception ex)
-            {
-                ed.WriteMessage("\nERROR: {0}", ex.Message);
-            }
-        }
-
-        [CommandMethod("ASD-BBS-INSPECT")]
-        public void RunBbsInspect()
-        {
-            var doc = AcApp.DocumentManager.MdiActiveDocument;
-            if (doc == null) return;
-            var ed = doc.Editor;
-
-            var fileDlg = new Microsoft.Win32.OpenFileDialog
-            {
-                Title  = "Select BBS file (.xls or .xlsx) to inspect",
-                Filter = "Excel (*.xls;*.xlsx)|*.xls;*.xlsx"
-            };
-            if (fileDlg.ShowDialog() != true)
-            {
-                ed.WriteMessage("\nCancelled.");
-                return;
-            }
-
-            try
-            {
-                var info = BbsXlsReader.DetectLayout(fileDlg.FileName);
-                ed.WriteMessage("\n=== BBS Layout Inspection ===");
-                ed.WriteMessage("\nFile: {0}", info.FilePath);
-                ed.WriteMessage("\nSheets: {0}", info.Sheets.Count);
-
-                foreach (var sh in info.Sheets)
-                {
-                    ed.WriteMessage(
-                        "\n\nSheet [{0}] \"{1}\":",
-                        sh.SheetIndex, sh.SheetName);
-
-                    if (sh.BottomLayer != null)
-                        ed.WriteMessage(
-                            "\n  BOTTOM LAYER: rows {0}-{1} ({2} capacity rows)",
-                            sh.BottomLayer.FirstDataRow + 1,
-                            sh.BottomLayer.LastDataRow  + 1,
-                            sh.BottomLayer.CapacityRows);
-                    else
-                        ed.WriteMessage("\n  BOTTOM LAYER: not found");
-
-                    if (sh.TopLayer != null)
-                        ed.WriteMessage(
-                            "\n  TOP LAYER:    rows {0}-{1} ({2} capacity rows)",
-                            sh.TopLayer.FirstDataRow + 1,
-                            sh.TopLayer.LastDataRow  + 1,
-                            sh.TopLayer.CapacityRows);
-                    else
-                        ed.WriteMessage("\n  TOP LAYER:    not found");
-
-                    if (sh.AccessoriesRow.HasValue)
-                        ed.WriteMessage(
-                            "\n  Accessories boundary: row {0}",
-                            sh.AccessoriesRow.Value + 1);
-                }
-
-                ed.WriteMessage("\n=== end ===\n");
             }
             catch (System.Exception ex)
             {
@@ -2558,7 +2308,6 @@ namespace AsdRcSlab
                 ed.WriteMessage("\nERROR: {0}", ex.Message);
             }
         }
-
         private static string BuildBbsOutputPath(string inputPath)
         {
             string dir      = System.IO.Path.GetDirectoryName(inputPath);
