@@ -2030,6 +2030,62 @@ namespace AsdRcSlab
                 ed.WriteMessage("\n  [{0}] @ ({1:F1}, {2:F1}) — \"{3}\"",
                     item.cat, item.x, item.y, item.text);
 
+            // 1b. Wszystkie MText które ZAWIERAJĄ "DETAIL" w raw lub stripped —
+            //     pełen dump z porównaniem przed/po strip
+            ed.WriteMessage("\n\n=== ALL DETAIL MTEXTS (raw vs stripped) ===");
+            using (var tr2 = db.TransactionManager.StartTransaction())
+            {
+                var bt2 = (BlockTable)tr2.GetObject(db.BlockTableId, OpenMode.ForRead);
+                var msBtr = (BlockTableRecord)tr2.GetObject(
+                    bt2[BlockTableRecord.ModelSpace], OpenMode.ForRead);
+
+                int idx = 0;
+                foreach (ObjectId id in msBtr)
+                {
+                    var ent = tr2.GetObject(id, OpenMode.ForRead) as Entity;
+                    if (ent == null) continue;
+
+                    string raw = null;
+                    double x = 0, y = 0;
+                    string entType = "?";
+                    if (ent is MText mt2)
+                    {
+                        raw = mt2.Contents;
+                        x = mt2.Location.X;
+                        y = mt2.Location.Y;
+                        entType = "MText";
+                    }
+                    else if (ent is DBText dbt)
+                    {
+                        raw = dbt.TextString;
+                        x = dbt.Position.X;
+                        y = dbt.Position.Y;
+                        entType = "DBText";
+                    }
+                    else continue;
+
+                    if (raw == null) continue;
+                    if (!raw.ToUpperInvariant().Contains("DETAIL")) continue;
+
+                    string stripped = StripMTextFormatCodes(raw);
+
+                    string detailRxPattern = @"\bDETAIL\s+\S*\d+";
+                    var rx = new System.Text.RegularExpressions.Regex(
+                        detailRxPattern,
+                        System.Text.RegularExpressions.RegexOptions.IgnoreCase);
+                    var rxMatch = rx.Match(stripped);
+
+                    idx++;
+                    ed.WriteMessage("\n[{0}] {1} @ ({2:F1}, {3:F1}):", idx, entType, x, y);
+                    ed.WriteMessage("\n  RAW:      {0}", raw);
+                    ed.WriteMessage("\n  STRIPPED: {0}", stripped);
+                    ed.WriteMessage("\n  Regex match: {0}",
+                        rxMatch.Success ? "\"" + rxMatch.Value + "\"" : "NO MATCH");
+                }
+                tr2.Commit();
+            }
+            ed.WriteMessage("\n=== end DETAIL dump ===");
+
             // 2. Per-layout: bbox viewportów + które teksty wpadają
             using (var tr = db.TransactionManager.StartTransaction())
             {
