@@ -1098,6 +1098,85 @@ namespace AsdRcSlab
             return result;
         }
 
+        // DIAG variant — identyczna logika co ScanModelSpaceTexts ale zwraca też raw text.
+        // Używana tylko przez ASD-RCN-DIAG; usuwana w p106c po zakończeniu diagnostyki.
+        private static List<(MsTextCategory cat, double x, double y, string text)>
+            ScanModelSpaceTextsWithText(Database db)
+        {
+            var result = new List<(MsTextCategory, double, double, string)>();
+
+            using (var tr = db.TransactionManager.StartTransaction())
+            {
+                var bt = (BlockTable)tr.GetObject(db.BlockTableId, OpenMode.ForRead);
+                var ms = (BlockTableRecord)tr.GetObject(bt[BlockTableRecord.ModelSpace], OpenMode.ForRead);
+
+                foreach (ObjectId id in ms)
+                {
+                    string content = null;
+                    double x = 0, y = 0;
+
+                    var ent = tr.GetObject(id, OpenMode.ForRead);
+                    if (ent is MText mt)
+                    {
+                        content = StripMTextFormatCodes(mt.Contents);
+                        x = mt.Location.X;
+                        y = mt.Location.Y;
+                    }
+                    else if (ent is DBText t)
+                    {
+                        content = t.TextString;
+                        x = t.Position.X;
+                        y = t.Position.Y;
+                    }
+                    else continue;
+
+                    if (string.IsNullOrEmpty(content)) continue;
+
+                    MsTextCategory? msCat = null;
+
+                    var mainMatch = MainLayerRx.Match(content);
+                    if (mainMatch.Success)
+                    {
+                        string which = mainMatch.Groups[1].Value.ToUpperInvariant();
+                        msCat = which == "BOTTOM" ? MsTextCategory.MainBottom : MsTextCategory.MainTop;
+                    }
+                    else if (SectionRx.IsMatch(content)) msCat = MsTextCategory.Section;
+                    else if (PhRx.IsMatch(content))      msCat = MsTextCategory.Ph;
+                    else if (DetailRx.IsMatch(content))  msCat = MsTextCategory.Detail;
+
+                    if (msCat.HasValue)
+                        result.Add((msCat.Value, x, y, content));
+                }
+                tr.Commit();
+            }
+            return result;
+        }
+
+        // Helper: oblicza WCS bbox każdego viewportu na layoucie (skip VP #1 = overview).
+        // Identyczna logika co inline w ExtractAutoTitle3 — wyciągnięta dla DIAG.
+        private static List<(double xMin, double yMin, double xMax, double yMax)>
+            ComputeVpExtentsForLayout(Transaction tr, Layout layout)
+        {
+            var vpExtents = new List<(double xMin, double yMin, double xMax, double yMax)>();
+            var btr = (BlockTableRecord)tr.GetObject(layout.BlockTableRecordId, OpenMode.ForRead);
+            int vpIdx = 0;
+            foreach (ObjectId id in btr)
+            {
+                var vp = tr.GetObject(id, OpenMode.ForRead) as Viewport;
+                if (vp == null) continue;
+                vpIdx++;
+                if (vpIdx == 1) continue; // pierwszy VP = paperspace overview
+
+                double cx = vp.ViewCenter.X + vp.ViewTarget.X;
+                double cy = vp.ViewCenter.Y + vp.ViewTarget.Y;
+                double vh = vp.ViewHeight;
+                double aspect = (vp.Height > 0) ? (vp.Width / vp.Height) : 1.0;
+                double vw = vh * aspect;
+                vpExtents.Add((cx - vw / 2, cy - vh / 2, cx + vw / 2, cy + vh / 2 + 0.15 * vh));
+            }
+            return vpExtents;
+        }
+
         private static Dictionary<string, string> ExtractAutoTitle3(Database db)
         {
             var result = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
@@ -1113,29 +1192,7 @@ namespace AsdRcSlab
                     if (string.Equals(layout.LayoutName, "Model", StringComparison.OrdinalIgnoreCase))
                         continue;
 
-                    var btr = (BlockTableRecord)tr.GetObject(layout.BlockTableRecordId, OpenMode.ForRead);
-                    var vpExtents = new List<(double xMin, double yMin, double xMax, double yMax)>();
-                    int vpIdx = 0;
-                    foreach (ObjectId id in btr)
-                    {
-                        var vp = tr.GetObject(id, OpenMode.ForRead) as Viewport;
-                        if (vp == null) continue;
-                        vpIdx++;
-                        if (vpIdx == 1) continue; // pierwszy VP = paperspace overview
-
-                        // ViewCenter is in DCS (relative to ViewTarget) — convert to WCS
-                        double cx = vp.ViewCenter.X + vp.ViewTarget.X;
-                        double cy = vp.ViewCenter.Y + vp.ViewTarget.Y;
-                        double vh = vp.ViewHeight;
-                        double aspect = (vp.Height > 0) ? (vp.Width / vp.Height) : 1.0;
-                        double vw = vh * aspect;
-                        // Mały margines w górę żeby złapać tytuły MText umieszczone tuż nad
-                        // viewportem w modelspace (stab-12 p88). Wartość +0.15*vh empiryczna —
-                        // duży dość żeby objąć typowy tytuł (kilka linii), za mały żeby
-                        // łapać zawartość sąsiednich viewportów (vide RH149ZS001 RC011 łapał
-                        // SECTIONS z RC012/RC013).
-                        vpExtents.Add((cx - vw / 2, cy - vh / 2, cx + vw / 2, cy + vh / 2 + 0.15 * vh));
-                    }
+                    var vpExtents = ComputeVpExtentsForLayout(tr, layout);
 
                     bool hasBottom    = false;
                     bool hasTop       = false;
@@ -1954,6 +2011,62 @@ namespace AsdRcSlab
             }
 
             return updatedLayouts;
+        }
+
+        // DIAG command — tymczasowa, usuwana w p106c po zakończeniu diagnostyki.
+        [CommandMethod("ASD-RCN-DIAG")]
+        public void RunAsdRcnDiag()
+        {
+            var doc = AcApp.DocumentManager.MdiActiveDocument;
+            if (doc == null) return;
+            var ed  = doc.Editor;
+            var db  = doc.Database;
+
+            // 1. Wszystkie sklasyfikowane teksty w modelspace (z raw text)
+            var allTexts = ScanModelSpaceTextsWithText(db);
+            ed.WriteMessage("\n=== ASD-RCN DIAG ===");
+            ed.WriteMessage("\nClassified texts in modelspace: {0}", allTexts.Count);
+            foreach (var item in allTexts)
+                ed.WriteMessage("\n  [{0}] @ ({1:F1}, {2:F1}) — \"{3}\"",
+                    item.cat, item.x, item.y, item.text);
+
+            // 2. Per-layout: bbox viewportów + które teksty wpadają
+            using (var tr = db.TransactionManager.StartTransaction())
+            {
+                var layoutDict = (DBDictionary)tr.GetObject(db.LayoutDictionaryId, OpenMode.ForRead);
+                foreach (DBDictionaryEntry entry in layoutDict)
+                {
+                    var layout = tr.GetObject(entry.Value, OpenMode.ForRead) as Layout;
+                    if (layout == null) continue;
+                    if (string.Equals(layout.LayoutName, "Model", StringComparison.OrdinalIgnoreCase))
+                        continue;
+
+                    ed.WriteMessage("\n\nLayout: {0}", layout.LayoutName);
+                    var vpExtents = ComputeVpExtentsForLayout(tr, layout);
+
+                    for (int i = 0; i < vpExtents.Count; i++)
+                    {
+                        var (xMin, yMin, xMax, yMax) = vpExtents[i];
+                        ed.WriteMessage(
+                            "\n  VP[{0}]: ({1:F1},{2:F1})→({3:F1},{4:F1}) w={5:F1} h={6:F1}",
+                            i, xMin, yMin, xMax, yMax, xMax - xMin, yMax - yMin);
+
+                        bool any = false;
+                        foreach (var t in allTexts)
+                        {
+                            if (t.x >= xMin && t.x <= xMax && t.y >= yMin && t.y <= yMax)
+                            {
+                                if (!any) { ed.WriteMessage("\n    Contains:"); any = true; }
+                                ed.WriteMessage("\n      [{0}] @ ({1:F1},{2:F1}) — \"{3}\"",
+                                    t.cat, t.x, t.y, t.text);
+                            }
+                        }
+                        if (!any) ed.WriteMessage(" (empty)");
+                    }
+                }
+                tr.Commit();
+            }
+            ed.WriteMessage("\n=== end DIAG ===\n");
         }
 
         // Wstawia ramki z odnośnikami "SEE DRG ..." na każdym layoutcie RC.
