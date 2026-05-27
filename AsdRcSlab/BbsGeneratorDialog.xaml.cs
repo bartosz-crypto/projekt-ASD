@@ -20,6 +20,10 @@ namespace AsdRcSlab
         public string               SelectedTemplatePath { get; private set; }
 
         public BbsGeneratorDialog(BbsGenerationContext initial)
+            : this(initial, null) { }
+
+        public BbsGeneratorDialog(
+            BbsGenerationContext initial, string suggestedTemplatePath)
         {
             InitializeComponent();
             DataContext = this;
@@ -28,8 +32,19 @@ namespace AsdRcSlab
                 new ObservableCollection<BbsLayoutAssignment>(initial.Assignments);
             LayoutsGrid.ItemsSource = AssignmentsCollection;
 
-            // Template path — auto-fill z session memory
-            TemplateBox.Text = BbsSessionState.LastTemplatePath ?? "";
+            // Template path: priorytety
+            //   1. suggestedTemplatePath (z output dialogu) jeśli plik istnieje
+            //   2. BbsSessionState.LastTemplatePath (in-session memory)
+            //   3. pusto
+            if (!string.IsNullOrWhiteSpace(suggestedTemplatePath)
+                && System.IO.File.Exists(suggestedTemplatePath))
+            {
+                TemplateBox.Text = suggestedTemplatePath;
+            }
+            else
+            {
+                TemplateBox.Text = BbsSessionState.LastTemplatePath ?? "";
+            }
 
             ContractNoBox.Text = initial.ContractNo    ?? "";
             Address1Box.Text   = initial.AddressLine1  ?? "";

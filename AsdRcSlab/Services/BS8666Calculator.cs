@@ -195,7 +195,8 @@ namespace AsdRcSlab
         /// <summary>
         /// Lista wymiarów (A, B, C, D, E/R) używanych przez dany shape code
         /// — wg formuł BS 8666:2020 (mega-formuła AC16).
-        /// Nie używane wymiary nie powinny być wpisywane do BBS.
+        /// Currently unused by BbsXlsWriter (kept for potential reuse);
+        /// writer z p103f zawsze pisze A-E z input (oprócz 0/51/63).
         /// </summary>
         public static UsedDimensions GetUsedDimensions(int code)
         {

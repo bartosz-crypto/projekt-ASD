@@ -463,10 +463,12 @@ namespace AsdRcSlab
             // B5 Contract No.
             SetString(sheet, RowB5, ColB, context.ContractNo ?? "");
 
-            // H5/H6/H7 Address
-            SetString(sheet, RowH5, ColH, context.AddressLine1 ?? "");
-            SetString(sheet, RowH6, ColH, context.AddressLine2 ?? "");
-            SetString(sheet, RowH7, ColH, context.AddressLine3 ?? "");
+            // H5/H6/H7 Address — auto-split jeśli line1 za długie
+            var addressLines = SplitAddressIfNeeded(
+                context.AddressLine1, context.AddressLine2, context.AddressLine3);
+            SetString(sheet, RowH5, ColH, addressLines[0]);
+            SetString(sheet, RowH6, ColH, addressLines[1]);
+            SetString(sheet, RowH7, ColH, addressLines[2]);
 
             // B7 Revision
             SetString(sheet, RowB7, ColB, context.Revision ?? "");
@@ -489,6 +491,82 @@ namespace AsdRcSlab
                 var row = sheet.GetRow(r) ?? sheet.CreateRow(r);
                 BbsXlsWriter.WriteOneRowPublic(row, pageBars[i]);
             }
+        }
+
+        /// <summary>
+        /// Splituje pojedynczy długi address na max N linii (default 3) po
+        /// boundary z przecinka. Jeśli user już wpisał line2 albo line3 —
+        /// wrap się nie odbywa (zakładamy że user wie co robi).
+        /// </summary>
+        private static List<string> SplitAddressIfNeeded(
+            string line1, string line2, string line3,
+            int maxPerLine = 25, int maxLines = 3)
+        {
+            // Jeśli user wpisał coś w line2 albo line3 — używamy jak jest.
+            bool userMultilineProvided =
+                !string.IsNullOrWhiteSpace(line2)
+                || !string.IsNullOrWhiteSpace(line3);
+            if (userMultilineProvided)
+                return new List<string> {
+                    line1 ?? "",
+                    line2 ?? "",
+                    line3 ?? ""
+                };
+
+            // Tylko line1 wypełniona — sprawdź czy wymaga split'u.
+            string text = (line1 ?? "").Trim();
+            if (text.Length <= maxPerLine)
+                return new List<string> { text, "", "" };
+
+            // Split po przecinku, zbieraj fragmenty w linie respecting maxPerLine
+            var parts = text.Split(',');
+            var result = new List<string>();
+            var current = "";
+
+            for (int i = 0; i < parts.Length; i++)
+            {
+                string part = parts[i].Trim();
+                if (part.Length == 0) continue;
+
+                // Dodaj przecinek do nie-ostatnich
+                string token = part + (i < parts.Length - 1 ? "," : "");
+
+                string candidate = string.IsNullOrEmpty(current)
+                    ? token : current + " " + token;
+
+                if (candidate.Length <= maxPerLine)
+                {
+                    current = candidate;
+                }
+                else
+                {
+                    // Flush current, zacznij nową linię
+                    if (!string.IsNullOrEmpty(current))
+                    {
+                        if (result.Count >= maxLines - 1)
+                        {
+                            // Ostatnia linia — wciśnij resztę tutaj
+                            current += " " + token;
+                        }
+                        else
+                        {
+                            result.Add(current);
+                            current = token;
+                        }
+                    }
+                    else
+                    {
+                        current = token;
+                    }
+                }
+            }
+            if (!string.IsNullOrEmpty(current))
+                result.Add(current);
+
+            // Zapewnij dokładnie maxLines elementów
+            while (result.Count < maxLines)
+                result.Add("");
+            return result;
         }
 
         /// <summary>

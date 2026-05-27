@@ -2490,10 +2490,10 @@ namespace AsdRcSlab
                 return;
             }
 
-            // 2. Input xlsx (b1-style export)
+            // 2. Input xlsx (b1-style lub calculated)
             var inputDlg = new Microsoft.Win32.OpenFileDialog
             {
-                Title  = "Select INPUT xlsx (b1-style bar export)",
+                Title  = "Select INPUT xlsx (b1-style or calculated)",
                 Filter = "Excel (*.xlsx)|*.xlsx"
             };
             if (inputDlg.ShowDialog() != true)
@@ -2502,30 +2502,33 @@ namespace AsdRcSlab
                 return;
             }
 
-            // 3. Output path (nowy plik — SaveFileDialog)
-            var outputDlg = new Microsoft.Win32.SaveFileDialog
+            // 3. Target file (istniejący) — jednocześnie template i output.
+            //    OverwritePrompt=false: unika pytania "replace?" dla istniejących.
+            var targetDlg = new Microsoft.Win32.SaveFileDialog
             {
-                Title        = "Save new BBS as...",
-                Filter       = "Excel 97-2003 (*.xls)|*.xls|Excel (*.xlsx)|*.xlsx",
-                DefaultExt   = ".xls",
-                AddExtension = true
+                Title           = "Select TARGET BBS file (will be overwritten)",
+                Filter          = "Excel 97-2003 (*.xls)|*.xls|Excel (*.xlsx)|*.xlsx",
+                DefaultExt      = ".xls",
+                AddExtension    = true,
+                OverwritePrompt = false
             };
-            if (outputDlg.ShowDialog() != true)
+            if (targetDlg.ShowDialog() != true)
             {
                 ed.WriteMessage("\nCancelled.");
                 return;
             }
+            string targetPath = targetDlg.FileName;
 
-            // 4. WPF dialog (template wewnątrz + layout assignments + title block)
+            // 4. WPF dialog — Template auto-fill na targetPath
             var initial = BbsGenerationContext.BuildInitialFromLayouts(layouts);
-            var dlg = new BbsGeneratorDialog(initial);
+            var dlg = new BbsGeneratorDialog(initial, targetPath);
             var ok = AcApp.ShowModalWindow(AcApp.MainWindow.Handle, dlg, false);
             if (ok != true)
             {
                 ed.WriteMessage("\nCancelled.");
                 return;
             }
-            var context      = dlg.Result;
+            var context         = dlg.Result;
             string templatePath = dlg.SelectedTemplatePath;
 
             // 5. Wczytaj input xlsx + generuj
@@ -2534,10 +2537,11 @@ namespace AsdRcSlab
                 ed.WriteMessage("\nReading input: {0}", inputDlg.FileName);
                 var rows = BbsXlsxReader.Read(inputDlg.FileName);
                 ed.WriteMessage("\nLoaded {0} bar rows.", rows.Count);
+                ed.WriteMessage("\nTemplate: {0}", templatePath);
+                ed.WriteMessage("\nOutput: {0}", targetPath);
 
-                ed.WriteMessage("\nUsing template: {0}", templatePath);
                 var result = BbsXlsGenerator.Generate(
-                    context, rows, templatePath, outputDlg.FileName);
+                    context, rows, templatePath, targetPath);
 
                 if (result.Success)
                 {

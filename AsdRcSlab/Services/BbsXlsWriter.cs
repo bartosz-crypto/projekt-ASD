@@ -216,6 +216,7 @@ namespace AsdRcSlab
         {
             int  code       = b.ShapeCode;
             bool isStraight = (code == 0);
+            bool isLink     = (code == 51 || code == 63);
 
             // Zawsze pisane: B-G (bar mark, type, no mbrs, no each, total, length)
             GetOrCreate(row, ColB).SetCellValue(b.BarMark);
@@ -235,23 +236,34 @@ namespace AsdRcSlab
             else
                 GetOrCreate(row, ColH).SetCellValue((double)code);
 
-            // I-M: per-code dimension logic
+            // I-M: per-row logic
             if (isStraight)
             {
-                // Special case: A = "STR" string, B-M nietykane.
+                // Special case code 0: I="STR", J-M nietykane.
                 // Cells pre-existing po Clear są Blank z zachowanym stylem.
                 GetOrCreate(row, ColI).SetCellValue("STR");
             }
+            else if (isLink)
+            {
+                // Closed links (51, 63): tylko A i B. C, D, E/R NIE pisane.
+                // (Dla 51/63 wymuszone blank w C/D nawet jeśli input ma
+                // niezerowe wartości — Excel template formuła nie bierze
+                // tych pod uwagę dla zamkniętych strzemion.)
+                GetOrCreate(row, ColI).SetCellValue(b.A);
+                GetOrCreate(row, ColJ).SetCellValue(b.B);
+                // K (C), L (D), M (E/R) — NIE tykamy.
+            }
             else
             {
-                var used = BS8666Calculator.GetUsedDimensions(code);
-                if (used.HasA) GetOrCreate(row, ColI).SetCellValue(b.A);
-                if (used.HasB) GetOrCreate(row, ColJ).SetCellValue(b.B);
-                if (used.HasC) GetOrCreate(row, ColK).SetCellValue(b.C);
-                if (used.HasD) GetOrCreate(row, ColL).SetCellValue(b.D);
-                if (used.HasE && b.EOrR.HasValue)
+                // Wszystkie pozostałe shape codes: A, B, C, D, E/R z input.
+                // BEZ per-code dimension logic — user'owa decyzja po teście
+                // SP116QL001 (shape code 15 gubił B).
+                GetOrCreate(row, ColI).SetCellValue(b.A);
+                GetOrCreate(row, ColJ).SetCellValue(b.B);
+                GetOrCreate(row, ColK).SetCellValue(b.C);
+                GetOrCreate(row, ColL).SetCellValue(b.D);
+                if (b.EOrR.HasValue)
                     GetOrCreate(row, ColM).SetCellValue(b.EOrR.Value);
-                // Cells dla "not used" dimensions — nie tykane.
             }
         }
 
