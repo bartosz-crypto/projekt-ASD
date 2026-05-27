@@ -109,116 +109,189 @@ namespace AsdRcSlab
                     "Input has {0} top-layer bars but no layouts "
                     + "assigned as TOP in dialog.", top.Count);
 
-            // 5. Page counts
-            int bottomPages = bottom.Count == 0 ? 0
-                : (int)Math.Ceiling((double)bottom.Count / capacity);
-            int topPages = top.Count == 0 ? 0
-                : (int)Math.Ceiling((double)top.Count / capacity);
-
-            if (bottomPages == 0 && topPages == 0)
-                return Fail("No bars to write.");
-
-            // Tylko PIERWSZY wygenerowany sheet zachowuje pełne accessories
-            bool isFirstSheetInFile = true;
-
-            // 6a. Generate BOTTOM sheets
-            var bottomDrgLines = BuildDrgListLines(context.BottomLayouts);
-            string bottomPrefix = BuildSheetPrefix(
-                context.BottomLayouts, context.Revision);
-            int writtenBottom = 0;
-            var pageErrors = new List<string>();
-
-            for (int p = 1; p <= bottomPages; p++)
+            // 5. Single-sheet BottomAndTop check
+            //    Aktywne tylko gdy WSZYSTKIE assigned layouty są BottomAndTop
+            //    (nie ma Bottom-only ani Top-only) i bary mieszczą się.
+            bool useSingleSheetBT = false;
+            bool btHasSeparator   = false;
+            if (context.BottomAndTopLayouts.Count > 0
+                && context.BottomLayouts.Count == context.BottomAndTopLayouts.Count
+                && context.TopLayouts.Count    == context.BottomAndTopLayouts.Count)
             {
-                try
+                if (bottom.Count + 1 + top.Count <= capacity)
                 {
-                    ISheet newSheet = wb.CloneSheet(templateSheetIndex);
-
-                    string baseSheetName = BuildSheetName(bottomPrefix, p, bottomPages);
-                    string sheetName = EnsureUniqueSheetName(wb, baseSheetName);
-                    int newIdx = wb.GetSheetIndex(newSheet.SheetName);
-                    wb.SetSheetName(newIdx, sheetName);
-
-                    CopyColumnWidthsAndStructure(templateSheet, newSheet);
-
-                    var pageBars = bottom
-                        .Skip((p - 1) * capacity)
-                        .Take(capacity)
-                        .ToList();
-
-                    FillSheet(
-                        newSheet, context, bottomDrgLines,
-                        description:  BuildA3("BOTTOM LAYER", context.PlotSuffix),
-                        layerLabel:   "BOTTOM LAYER",
-                        pageNumber:   p,
-                        totalPages:   bottomPages,
-                        firstDataRow: firstDataRow,
-                        capacity:     capacity,
-                        pageBars:     pageBars);
-
-                    if (!isFirstSheetInFile)
-                        ClearAccessoriesPartial(newSheet);
-                    isFirstSheetInFile = false;
-
-                    // Print_Area — kluczowy fix z p103e
-                    SetSheetPrintArea(wb, newIdx);
-
-                    writtenBottom += pageBars.Count;
+                    useSingleSheetBT = true;
+                    btHasSeparator   = true;
                 }
-                catch (Exception ex)
+                else if (bottom.Count + top.Count <= capacity)
                 {
-                    pageErrors.Add(string.Format(
-                        "BOTTOM Page {0}/{1}: {2}", p, bottomPages, ex.Message));
+                    useSingleSheetBT = true;
+                    btHasSeparator   = false;
                 }
+                // else: total > capacity → standard multi-page fallback
             }
 
-            // 6b. Generate TOP sheets
-            var topDrgLines = BuildDrgListLines(context.TopLayouts);
-            string topPrefix = BuildSheetPrefix(
-                context.TopLayouts, context.Revision);
-            int writtenTop = 0;
+            int writtenBottom = 0;
+            int writtenTop    = 0;
+            int bottomPages   = 0;
+            int topPages      = 0;
+            var pageErrors    = new List<string>();
 
-            for (int p = 1; p <= topPages; p++)
+            if (useSingleSheetBT)
             {
-                try
+                // ---- 6. Single-sheet BottomAndTop path ----
+                var btLayouts   = context.BottomAndTopLayouts;
+                var btDrgLines  = BuildDrgListLines(btLayouts);
+                string btPrefix = BuildSheetPrefix(btLayouts, context.Revision);
+
+                ISheet newSheet = wb.CloneSheet(templateSheetIndex);
+                string baseSheetName = BuildSheetName(btPrefix, 1, 1);
+                string sheetName = EnsureUniqueSheetName(wb, baseSheetName);
+                int newIdx = wb.GetSheetIndex(newSheet.SheetName);
+                wb.SetSheetName(newIdx, sheetName);
+
+                CopyColumnWidthsAndStructure(templateSheet, newSheet);
+
+                FillSheetHeadersOnly(
+                    newSheet, context, btDrgLines,
+                    description: BuildA3("BOTTOM LAYER + TOP LAYER", context.PlotSuffix),
+                    pageNumber:  1,
+                    totalPages:  1);
+
+                // BOTTOM section
+                SetString(newSheet, firstDataRow, ColA, "BOTTOM LAYER");
+                for (int i = 0; i < bottom.Count; i++)
                 {
-                    ISheet newSheet = wb.CloneSheet(templateSheetIndex);
-
-                    string baseSheetName = BuildSheetName(topPrefix, p, topPages);
-                    string sheetName = EnsureUniqueSheetName(wb, baseSheetName);
-                    int newIdx = wb.GetSheetIndex(newSheet.SheetName);
-                    wb.SetSheetName(newIdx, sheetName);
-
-                    CopyColumnWidthsAndStructure(templateSheet, newSheet);
-
-                    var pageBars = top
-                        .Skip((p - 1) * capacity)
-                        .Take(capacity)
-                        .ToList();
-
-                    FillSheet(
-                        newSheet, context, topDrgLines,
-                        description:  BuildA3("TOP LAYER", context.PlotSuffix),
-                        layerLabel:   "TOP LAYER",
-                        pageNumber:   p,
-                        totalPages:   topPages,
-                        firstDataRow: firstDataRow,
-                        capacity:     capacity,
-                        pageBars:     pageBars);
-
-                    if (!isFirstSheetInFile)
-                        ClearAccessoriesPartial(newSheet);
-                    isFirstSheetInFile = false;
-
-                    // Print_Area — kluczowy fix z p103e
-                    SetSheetPrintArea(wb, newIdx);
-
-                    writtenTop += pageBars.Count;
+                    int r   = firstDataRow + i;
+                    var row = newSheet.GetRow(r) ?? newSheet.CreateRow(r);
+                    BbsXlsWriter.WriteOneRowPublic(row, bottom[i]);
                 }
-                catch (Exception ex)
+
+                // TOP section (optional separator row in between)
+                int topStart = firstDataRow + bottom.Count + (btHasSeparator ? 1 : 0);
+                if (top.Count > 0)
+                    SetString(newSheet, topStart, ColA, "TOP LAYER");
+                for (int i = 0; i < top.Count; i++)
                 {
-                    pageErrors.Add(string.Format(
-                        "TOP Page {0}/{1}: {2}", p, topPages, ex.Message));
+                    int r   = topStart + i;
+                    var row = newSheet.GetRow(r) ?? newSheet.CreateRow(r);
+                    BbsXlsWriter.WriteOneRowPublic(row, top[i]);
+                }
+
+                SetSheetPrintArea(wb, newIdx);
+                writtenBottom = bottom.Count;
+                writtenTop    = top.Count;
+                bottomPages   = 1;   // 1 sheet z obiema sekcjami
+            }
+            else
+            {
+                // ---- 6. Standard multi-page path ----
+                if (bottom.Count == 0 && top.Count == 0)
+                    return Fail("No bars to write.");
+
+                bottomPages = bottom.Count == 0 ? 0
+                    : (int)Math.Ceiling((double)bottom.Count / capacity);
+                topPages = top.Count == 0 ? 0
+                    : (int)Math.Ceiling((double)top.Count / capacity);
+
+                if (bottomPages == 0 && topPages == 0)
+                    return Fail("No bars to write.");
+
+                // Tylko PIERWSZY wygenerowany sheet zachowuje pełne accessories
+                bool isFirstSheetInFile = true;
+
+                // 6a. Generate BOTTOM sheets
+                var bottomDrgLines = BuildDrgListLines(context.BottomLayouts);
+                string bottomPrefix = BuildSheetPrefix(
+                    context.BottomLayouts, context.Revision);
+
+                for (int p = 1; p <= bottomPages; p++)
+                {
+                    try
+                    {
+                        ISheet newSheet = wb.CloneSheet(templateSheetIndex);
+
+                        string baseSheetName = BuildSheetName(bottomPrefix, p, bottomPages);
+                        string sheetName = EnsureUniqueSheetName(wb, baseSheetName);
+                        int newIdx = wb.GetSheetIndex(newSheet.SheetName);
+                        wb.SetSheetName(newIdx, sheetName);
+
+                        CopyColumnWidthsAndStructure(templateSheet, newSheet);
+
+                        var pageBars = bottom
+                            .Skip((p - 1) * capacity)
+                            .Take(capacity)
+                            .ToList();
+
+                        FillSheet(
+                            newSheet, context, bottomDrgLines,
+                            description:  BuildA3("BOTTOM LAYER", context.PlotSuffix),
+                            layerLabel:   "BOTTOM LAYER",
+                            pageNumber:   p,
+                            totalPages:   bottomPages,
+                            firstDataRow: firstDataRow,
+                            capacity:     capacity,
+                            pageBars:     pageBars);
+
+                        if (!isFirstSheetInFile)
+                            ClearAccessoriesPartial(newSheet);
+                        isFirstSheetInFile = false;
+
+                        SetSheetPrintArea(wb, newIdx);
+                        writtenBottom += pageBars.Count;
+                    }
+                    catch (Exception ex)
+                    {
+                        pageErrors.Add(string.Format(
+                            "BOTTOM Page {0}/{1}: {2}", p, bottomPages, ex.Message));
+                    }
+                }
+
+                // 6b. Generate TOP sheets
+                var topDrgLines = BuildDrgListLines(context.TopLayouts);
+                string topPrefix = BuildSheetPrefix(
+                    context.TopLayouts, context.Revision);
+
+                for (int p = 1; p <= topPages; p++)
+                {
+                    try
+                    {
+                        ISheet newSheet = wb.CloneSheet(templateSheetIndex);
+
+                        string baseSheetName = BuildSheetName(topPrefix, p, topPages);
+                        string sheetName = EnsureUniqueSheetName(wb, baseSheetName);
+                        int newIdx = wb.GetSheetIndex(newSheet.SheetName);
+                        wb.SetSheetName(newIdx, sheetName);
+
+                        CopyColumnWidthsAndStructure(templateSheet, newSheet);
+
+                        var pageBars = top
+                            .Skip((p - 1) * capacity)
+                            .Take(capacity)
+                            .ToList();
+
+                        FillSheet(
+                            newSheet, context, topDrgLines,
+                            description:  BuildA3("TOP LAYER", context.PlotSuffix),
+                            layerLabel:   "TOP LAYER",
+                            pageNumber:   p,
+                            totalPages:   topPages,
+                            firstDataRow: firstDataRow,
+                            capacity:     capacity,
+                            pageBars:     pageBars);
+
+                        if (!isFirstSheetInFile)
+                            ClearAccessoriesPartial(newSheet);
+                        isFirstSheetInFile = false;
+
+                        SetSheetPrintArea(wb, newIdx);
+                        writtenTop += pageBars.Count;
+                    }
+                    catch (Exception ex)
+                    {
+                        pageErrors.Add(string.Format(
+                            "TOP Page {0}/{1}: {2}", p, topPages, ex.Message));
+                    }
                 }
             }
 
@@ -274,10 +347,15 @@ namespace AsdRcSlab
 
             if (pageErrors.Count == 0)
             {
-                resultObj.Message = string.Format(
-                    "Generated {0} BOTTOM page(s) ({1} bars) + "
-                    + "{2} TOP page(s) ({3} bars).",
-                    bottomPages, writtenBottom, topPages, writtenTop);
+                resultObj.Message = useSingleSheetBT
+                    ? string.Format(
+                        "Generated 1 single-sheet "
+                        + "(BOTTOM {0} bars + TOP {1} bars).",
+                        writtenBottom, writtenTop)
+                    : string.Format(
+                        "Generated {0} BOTTOM page(s) ({1} bars) + "
+                        + "{2} TOP page(s) ({3} bars).",
+                        bottomPages, writtenBottom, topPages, writtenTop);
             }
             else
             {
@@ -461,6 +539,37 @@ namespace AsdRcSlab
             if (string.IsNullOrWhiteSpace(plotSuffix))
                 return baseDesc + layerLabel;
             return baseDesc + layerLabel + " - " + plotSuffix;
+        }
+
+        /// <summary>
+        /// Wypełnia tylko headers arkusza (bez bar rows ani A15 label).
+        /// Używana przez ścieżkę single-sheet BottomAndTop gdzie sekcje
+        /// BOTTOM/TOP są zapisywane osobno po wywołaniu tej metody.
+        /// </summary>
+        private static void FillSheetHeadersOnly(
+            ISheet               sheet,
+            BbsGenerationContext context,
+            List<string>         drgLines,
+            string               description,
+            int                  pageNumber,
+            int                  totalPages)
+        {
+            SetString(sheet, RowA3, ColA, description);
+            SetString(sheet, RowB5, ColB, context.ContractNo ?? "");
+
+            var addressLines = SplitAddressIfNeeded(
+                context.AddressLine1, context.AddressLine2, context.AddressLine3);
+            SetString(sheet, RowH5, ColH, addressLines[0]);
+            SetString(sheet, RowH6, ColH, addressLines[1]);
+            SetString(sheet, RowH7, ColH, addressLines[2]);
+
+            SetString(sheet, RowB7, ColB, context.Revision ?? "");
+
+            for (int i = 0; i < drgLines.Count; i++)
+                SetString(sheet, RowM5 + i, ColM, drgLines[i]);
+
+            SetString(sheet, RowL8, ColL,
+                string.Format("Page {0} of {1}", pageNumber, totalPages));
         }
 
         /// <summary>

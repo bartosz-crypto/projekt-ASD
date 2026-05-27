@@ -22,9 +22,10 @@ namespace AsdRcSlab
     /// </summary>
     public enum BbsLayerAssignment
     {
-        Skip   = 0,
-        Bottom = 1,
-        Top    = 2
+        Skip         = 0,
+        Bottom       = 1,
+        Top          = 2,
+        BottomAndTop = 3
     }
 
     /// <summary>
@@ -59,7 +60,8 @@ namespace AsdRcSlab
             get
             {
                 return Assignments
-                    .Where(a => a.Assignment == BbsLayerAssignment.Bottom)
+                    .Where(a => a.Assignment == BbsLayerAssignment.Bottom
+                             || a.Assignment == BbsLayerAssignment.BottomAndTop)
                     .Select(a => a.Layout)
                     .ToList();
             }
@@ -70,7 +72,23 @@ namespace AsdRcSlab
             get
             {
                 return Assignments
-                    .Where(a => a.Assignment == BbsLayerAssignment.Top)
+                    .Where(a => a.Assignment == BbsLayerAssignment.Top
+                             || a.Assignment == BbsLayerAssignment.BottomAndTop)
+                    .Select(a => a.Layout)
+                    .ToList();
+            }
+        }
+
+        /// <summary>
+        /// Layouts assigned as Bottom + Top combined. Używane przez generator
+        /// do decyzji "single sheet with both sections" vs "multi-page".
+        /// </summary>
+        public List<BbsLayoutInfo> BottomAndTopLayouts
+        {
+            get
+            {
+                return Assignments
+                    .Where(a => a.Assignment == BbsLayerAssignment.BottomAndTop)
                     .Select(a => a.Layout)
                     .ToList();
             }

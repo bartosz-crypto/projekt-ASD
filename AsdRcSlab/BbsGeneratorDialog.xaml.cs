@@ -1,5 +1,6 @@
 using System.Collections.Generic;
 using System.Collections.ObjectModel;
+using System.Linq;
 using System.Windows;
 
 namespace AsdRcSlab
@@ -13,7 +14,8 @@ namespace AsdRcSlab
             {
                 BbsLayerAssignment.Skip,
                 BbsLayerAssignment.Bottom,
-                BbsLayerAssignment.Top
+                BbsLayerAssignment.Top,
+                BbsLayerAssignment.BottomAndTop
             };
 
         public BbsGenerationContext Result            { get; private set; }
@@ -67,6 +69,20 @@ namespace AsdRcSlab
 
         private void OnOkClick(object sender, RoutedEventArgs e)
         {
+            // Walidacja: przynajmniej 1 layout musi mieć assignment ≠ Skip
+            bool anyAssigned = AssignmentsCollection
+                .Any(a => a.Assignment != BbsLayerAssignment.Skip);
+            if (!anyAssigned)
+            {
+                System.Windows.MessageBox.Show(
+                    "Please assign at least one layout to Bottom, Top, or Bottom + Top.\n\n"
+                    + "If all layouts are 'Skip', no BBS will be generated.",
+                    "No layouts assigned",
+                    System.Windows.MessageBoxButton.OK,
+                    System.Windows.MessageBoxImage.Warning);
+                return;  // NIE zamykaj dialogu
+            }
+
             string output = OutputBox.Text;
             if (string.IsNullOrWhiteSpace(output))
             {
