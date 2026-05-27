@@ -62,13 +62,13 @@
                 <ColumnDefinition Width="*"/>
             </Grid.ColumnDefinitions>
 
-            <!-- Row 0: Template BBS (NOWE) -->
-            <TextBlock Grid.Row="0" Grid.Column="0" Text="Template BBS:"
+            <!-- Row 0: Output BBS -->
+            <TextBlock Grid.Row="0" Grid.Column="0" Text="Output BBS:"
                        VerticalAlignment="Center"/>
             <DockPanel Grid.Row="0" Grid.Column="1">
                 <Button DockPanel.Dock="Right" Width="80" Content="Browse..."
-                        Margin="5,2,0,2" Click="OnTemplateBrowseClick"/>
-                <TextBox x:Name="TemplateBox" Margin="0,2"/>
+                        Margin="5,2,0,2" Click="OnOutputBrowseClick"/>
+                <TextBox x:Name="OutputBox" Margin="0,2"/>
             </DockPanel>
 
             <TextBlock Grid.Row="1" Grid.Column="0" Text="Contract No.:"

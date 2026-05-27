@@ -2237,8 +2237,7 @@ namespace AsdRcSlab
             if (doc == null) return;
             var ed = doc.Editor;
 
-            // 1. Czytaj layouty z aktualnego drawingu (przed dialogiem plików —
-            //    żeby user nie wybierał plików gdy drawing nie ma layoutów)
+            // 1. Czytaj layouty z aktualnego drawingu
             var layouts = DrawingTitleBlockReader.ReadAllLayouts(doc);
             if (layouts.Count == 0)
             {
@@ -2260,43 +2259,43 @@ namespace AsdRcSlab
                 return;
             }
 
-            // 3. Target file (istniejący) — jednocześnie template i output.
-            //    OverwritePrompt=false: unika pytania "replace?" dla istniejących.
-            var targetDlg = new Microsoft.Win32.SaveFileDialog
+            // 3. Template BBS (istniejący plik wzorcowy)
+            var templateDlg = new Microsoft.Win32.OpenFileDialog
             {
-                Title           = "Select TARGET BBS file (will be overwritten)",
-                Filter          = "Excel 97-2003 (*.xls)|*.xls|Excel (*.xlsx)|*.xlsx",
-                DefaultExt      = ".xls",
-                AddExtension    = true,
-                OverwritePrompt = false
+                Title  = "Select TEMPLATE BBS (existing wzorzec)",
+                Filter = "Excel (*.xls;*.xlsx)|*.xls;*.xlsx"
             };
-
-            // Auto-suggest nazwa + folder z aktualnego .dwg
-            string suggested = BbsXlsGenerator.SuggestBbsName(doc.Name);
-            if (!string.IsNullOrWhiteSpace(suggested))
+            // Auto-fill z persistent storage
+            string lastTemplate = BbsSessionState.LastTemplatePath;
+            if (!string.IsNullOrWhiteSpace(lastTemplate)
+                && System.IO.File.Exists(lastTemplate))
             {
-                targetDlg.InitialDirectory = System.IO.Path.GetDirectoryName(suggested);
-                targetDlg.FileName         = System.IO.Path.GetFileName(suggested);
+                templateDlg.InitialDirectory =
+                    System.IO.Path.GetDirectoryName(lastTemplate);
+                templateDlg.FileName =
+                    System.IO.Path.GetFileName(lastTemplate);
             }
-
-            if (targetDlg.ShowDialog() != true)
+            if (templateDlg.ShowDialog() != true)
             {
                 ed.WriteMessage("\nCancelled.");
                 return;
             }
-            string targetPath = targetDlg.FileName;
+            string templatePath = templateDlg.FileName;
+            // Zapisz jako persistent (nadpisuje przy każdym uruchomieniu)
+            BbsSessionState.LastTemplatePath = templatePath;
 
-            // 4. WPF dialog — Template auto-fill na targetPath
+            // 4. WPF dialog z polem Output BBS pre-filled
+            string suggestedOutput = BbsXlsGenerator.SuggestBbsName(doc.Name);
             var initial = BbsGenerationContext.BuildInitialFromLayouts(layouts);
-            var dlg = new BbsGeneratorDialog(initial, targetPath);
+            var dlg = new BbsGeneratorDialog(initial, suggestedOutput);
             var ok = AcApp.ShowModalWindow(AcApp.MainWindow.Handle, dlg, false);
             if (ok != true)
             {
                 ed.WriteMessage("\nCancelled.");
                 return;
             }
-            var context         = dlg.Result;
-            string templatePath = dlg.SelectedTemplatePath;
+            var context        = dlg.Result;
+            string outputPath  = dlg.SelectedOutputPath;
 
             // 5. Wczytaj input xlsx + generuj
             try
@@ -2305,10 +2304,10 @@ namespace AsdRcSlab
                 var rows = BbsXlsxReader.Read(inputDlg.FileName);
                 ed.WriteMessage("\nLoaded {0} bar rows.", rows.Count);
                 ed.WriteMessage("\nTemplate: {0}", templatePath);
-                ed.WriteMessage("\nOutput: {0}", targetPath);
+                ed.WriteMessage("\nOutput: {0}", outputPath);
 
                 var result = BbsXlsGenerator.Generate(
-                    context, rows, templatePath, targetPath);
+                    context, rows, templatePath, outputPath);
 
                 if (result.Success)
                 {

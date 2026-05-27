@@ -16,14 +16,14 @@ namespace AsdRcSlab
                 BbsLayerAssignment.Top
             };
 
-        public BbsGenerationContext Result           { get; private set; }
-        public string               SelectedTemplatePath { get; private set; }
+        public BbsGenerationContext Result            { get; private set; }
+        public string               SelectedOutputPath { get; private set; }
 
         public BbsGeneratorDialog(BbsGenerationContext initial)
             : this(initial, null) { }
 
         public BbsGeneratorDialog(
-            BbsGenerationContext initial, string suggestedTemplatePath)
+            BbsGenerationContext initial, string suggestedOutputPath)
         {
             InitializeComponent();
             DataContext = this;
@@ -32,19 +32,9 @@ namespace AsdRcSlab
                 new ObservableCollection<BbsLayoutAssignment>(initial.Assignments);
             LayoutsGrid.ItemsSource = AssignmentsCollection;
 
-            // Template path: priorytety
-            //   1. suggestedTemplatePath (z output dialogu) jeśli plik istnieje
-            //   2. BbsSessionState.LastTemplatePath (in-session memory)
-            //   3. pusto
-            if (!string.IsNullOrWhiteSpace(suggestedTemplatePath)
-                && System.IO.File.Exists(suggestedTemplatePath))
-            {
-                TemplateBox.Text = suggestedTemplatePath;
-            }
-            else
-            {
-                TemplateBox.Text = BbsSessionState.LastTemplatePath ?? "";
-            }
+            // Output path: pre-fill z suggestion (auto-generated name z .dwg
+            // base name + .xls extension w tym samym folderze)
+            OutputBox.Text = suggestedOutputPath ?? "";
 
             ContractNoBox.Text = initial.ContractNo    ?? "";
             Address1Box.Text   = initial.AddressLine1  ?? "";
@@ -54,40 +44,46 @@ namespace AsdRcSlab
             PlotSuffixBox.Text = initial.PlotSuffix    ?? "";
         }
 
-        private void OnTemplateBrowseClick(object sender, RoutedEventArgs e)
+        private void OnOutputBrowseClick(object sender, RoutedEventArgs e)
         {
-            var dlg = new Microsoft.Win32.OpenFileDialog
+            var dlg = new Microsoft.Win32.SaveFileDialog
             {
-                Title  = "Select BBS template (.xls or .xlsx)",
-                Filter = "Excel (*.xls;*.xlsx)|*.xls;*.xlsx"
+                Title           = "Save BBS as...",
+                Filter          = "Excel 97-2003 (*.xls)|*.xls|Excel (*.xlsx)|*.xlsx",
+                DefaultExt      = ".xls",
+                AddExtension    = true,
+                OverwritePrompt = false
             };
-            if (!string.IsNullOrWhiteSpace(TemplateBox.Text))
+            if (!string.IsNullOrWhiteSpace(OutputBox.Text))
             {
-                var dir = System.IO.Path.GetDirectoryName(TemplateBox.Text);
+                var dir = System.IO.Path.GetDirectoryName(OutputBox.Text);
                 if (System.IO.Directory.Exists(dir))
                     dlg.InitialDirectory = dir;
+                dlg.FileName = System.IO.Path.GetFileName(OutputBox.Text);
             }
             if (dlg.ShowDialog() == true)
-                TemplateBox.Text = dlg.FileName;
+                OutputBox.Text = dlg.FileName;
         }
 
         private void OnOkClick(object sender, RoutedEventArgs e)
         {
-            string template = TemplateBox.Text;
-            if (string.IsNullOrWhiteSpace(template))
+            string output = OutputBox.Text;
+            if (string.IsNullOrWhiteSpace(output))
             {
                 MessageBox.Show(
-                    "Template BBS path is required.",
-                    "Missing template",
+                    "Output BBS path is required.",
+                    "Missing output",
                     MessageBoxButton.OK,
                     MessageBoxImage.Warning);
                 return;
             }
-            if (!System.IO.File.Exists(template))
+            // Walidacja: folder musi istnieć (plik nie musi — będzie utworzony)
+            var dir2 = System.IO.Path.GetDirectoryName(output);
+            if (!string.IsNullOrEmpty(dir2) && !System.IO.Directory.Exists(dir2))
             {
                 MessageBox.Show(
-                    "Template file not found:\n" + template,
-                    "File not found",
+                    "Output folder doesn't exist:\n" + dir2,
+                    "Invalid folder",
                     MessageBoxButton.OK,
                     MessageBoxImage.Warning);
                 return;
@@ -104,9 +100,7 @@ namespace AsdRcSlab
                 PlotSuffix   = PlotSuffixBox.Text
             };
 
-            // Session memory — następnym razem auto-fill
-            BbsSessionState.LastTemplatePath = template;
-            SelectedTemplatePath = template;
+            SelectedOutputPath = output;
 
             DialogResult = true;
             Close();
