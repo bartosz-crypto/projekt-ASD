@@ -77,10 +77,29 @@ namespace AsdRcSlab
         }
 
         /// <summary>
+        /// Wyciąga "plot suffix" z atrybutu TITLE_1 drawingu.
+        /// Heurystyka: wszystko przed pierwszą kropką, trim.
+        /// Przykłady:
+        ///   "PLOT 1-8. REINFORCEMENT DETAILS"      → "PLOT 1-8"
+        ///   "HOUSE. REINFORCEMENT DETAILS"         → "HOUSE"
+        ///   "REINFORCEMENT DETAILS" (no dot)       → ""
+        ///   null/empty                             → ""
+        /// </summary>
+        private static string ExtractPlotSuffix(string title1)
+        {
+            if (string.IsNullOrWhiteSpace(title1)) return "";
+            string t = title1.Trim();
+            int dotIdx = t.IndexOf('.');
+            if (dotIdx < 0) return "";  // bez kropki nie pasuje do wzorca
+            return t.Substring(0, dotIdx).Trim();
+        }
+
+        /// <summary>
         /// Buduje kontekst startowy z listy layoutów drawingu.
         /// Auto-fill heurystyka:
         ///   Contract No. = DRAWING_NUMBER split przez "-" pierwszy człon
         ///   Address      = PROJ_1 / PROJ_2 / PROJ_3
+        ///   Plot suffix  = TITLE_1 (wszystko przed pierwszą kropką)
         ///   Revision     = "C1" (default)
         /// </summary>
         public static BbsGenerationContext BuildInitialFromLayouts(
@@ -113,6 +132,11 @@ namespace AsdRcSlab
                 ctx.AddressLine1 = proj1 ?? "";
                 ctx.AddressLine2 = proj2 ?? "";
                 ctx.AddressLine3 = proj3 ?? "";
+
+                // Plot suffix: weź TITLE_1 pierwszego layoutu
+                string title1;
+                first.Attributes.TryGetValue("TITLE_1", out title1);
+                ctx.PlotSuffix = ExtractPlotSuffix(title1);
             }
 
             ctx.Revision = "C1";  // default — user może zmienić
