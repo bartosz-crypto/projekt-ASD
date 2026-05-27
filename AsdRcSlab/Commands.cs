@@ -1129,7 +1129,12 @@ namespace AsdRcSlab
                         double vh = vp.ViewHeight;
                         double aspect = (vp.Height > 0) ? (vp.Width / vp.Height) : 1.0;
                         double vw = vh * aspect;
-                        vpExtents.Add((cx - vw / 2, cy - vh / 2, cx + vw / 2, cy + vh / 2 + 2 * vh));
+                        // Mały margines w górę żeby złapać tytuły MText umieszczone tuż nad
+                        // viewportem w modelspace (stab-12 p88). Wartość +0.15*vh empiryczna —
+                        // duży dość żeby objąć typowy tytuł (kilka linii), za mały żeby
+                        // łapać zawartość sąsiednich viewportów (vide RH149ZS001 RC011 łapał
+                        // SECTIONS z RC012/RC013).
+                        vpExtents.Add((cx - vw / 2, cy - vh / 2, cx + vw / 2, cy + vh / 2 + 0.15 * vh));
                     }
 
                     bool hasBottom    = false;
@@ -1156,7 +1161,7 @@ namespace AsdRcSlab
                     var parts = new List<string>();
                     if (hasBottom)   parts.Add("BOTTOM LAYER");
                     if (hasTop)      parts.Add("TOP LAYER");
-                    if (hasDetail)   parts.Add("DETAIL");
+                    if (hasDetail)   parts.Add("DETAILS");
                     if (hasSections) parts.Add("SECTIONS");
                     if (hasPh)       parts.Add("PH DETAILS");
 
