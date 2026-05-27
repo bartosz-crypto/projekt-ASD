@@ -139,7 +139,7 @@ namespace AsdRcSlab
             RegexOptions.IgnoreCase);
 
         private static readonly Regex DetailRx = new Regex(
-            @"\bDETAIL\s+\S*\d+",
+            @"\bDETAIL\b[^A-Za-z\n]*\d+",
             RegexOptions.IgnoreCase);
 
         // ── PANEL 1: PROJEKT ──────────────────────────────────────────────────
@@ -1098,60 +1098,6 @@ namespace AsdRcSlab
             return result;
         }
 
-        // DIAG variant — identyczna logika co ScanModelSpaceTexts ale zwraca też raw text.
-        // Używana tylko przez ASD-RCN-DIAG; usuwana w p106c po zakończeniu diagnostyki.
-        private static List<(MsTextCategory cat, double x, double y, string text)>
-            ScanModelSpaceTextsWithText(Database db)
-        {
-            var result = new List<(MsTextCategory, double, double, string)>();
-
-            using (var tr = db.TransactionManager.StartTransaction())
-            {
-                var bt = (BlockTable)tr.GetObject(db.BlockTableId, OpenMode.ForRead);
-                var ms = (BlockTableRecord)tr.GetObject(bt[BlockTableRecord.ModelSpace], OpenMode.ForRead);
-
-                foreach (ObjectId id in ms)
-                {
-                    string content = null;
-                    double x = 0, y = 0;
-
-                    var ent = tr.GetObject(id, OpenMode.ForRead);
-                    if (ent is MText mt)
-                    {
-                        content = StripMTextFormatCodes(mt.Contents);
-                        x = mt.Location.X;
-                        y = mt.Location.Y;
-                    }
-                    else if (ent is DBText t)
-                    {
-                        content = t.TextString;
-                        x = t.Position.X;
-                        y = t.Position.Y;
-                    }
-                    else continue;
-
-                    if (string.IsNullOrEmpty(content)) continue;
-
-                    MsTextCategory? msCat = null;
-
-                    var mainMatch = MainLayerRx.Match(content);
-                    if (mainMatch.Success)
-                    {
-                        string which = mainMatch.Groups[1].Value.ToUpperInvariant();
-                        msCat = which == "BOTTOM" ? MsTextCategory.MainBottom : MsTextCategory.MainTop;
-                    }
-                    else if (SectionRx.IsMatch(content)) msCat = MsTextCategory.Section;
-                    else if (PhRx.IsMatch(content))      msCat = MsTextCategory.Ph;
-                    else if (DetailRx.IsMatch(content))  msCat = MsTextCategory.Detail;
-
-                    if (msCat.HasValue)
-                        result.Add((msCat.Value, x, y, content));
-                }
-                tr.Commit();
-            }
-            return result;
-        }
-
         // Helper: oblicza WCS bbox każdego viewportu na layoucie (skip VP #1 = overview).
         // Identyczna logika co inline w ExtractAutoTitle3 — wyciągnięta dla DIAG.
         private static List<(double xMin, double yMin, double xMax, double yMax)>
@@ -2011,118 +1957,6 @@ namespace AsdRcSlab
             }
 
             return updatedLayouts;
-        }
-
-        // DIAG command — tymczasowa, usuwana w p106c po zakończeniu diagnostyki.
-        [CommandMethod("ASD-RCN-DIAG")]
-        public void RunAsdRcnDiag()
-        {
-            var doc = AcApp.DocumentManager.MdiActiveDocument;
-            if (doc == null) return;
-            var ed  = doc.Editor;
-            var db  = doc.Database;
-
-            // 1. Wszystkie sklasyfikowane teksty w modelspace (z raw text)
-            var allTexts = ScanModelSpaceTextsWithText(db);
-            ed.WriteMessage("\n=== ASD-RCN DIAG ===");
-            ed.WriteMessage("\nClassified texts in modelspace: {0}", allTexts.Count);
-            foreach (var item in allTexts)
-                ed.WriteMessage("\n  [{0}] @ ({1:F1}, {2:F1}) — \"{3}\"",
-                    item.cat, item.x, item.y, item.text);
-
-            // 1b. Wszystkie MText które ZAWIERAJĄ "DETAIL" w raw lub stripped —
-            //     pełen dump z porównaniem przed/po strip
-            ed.WriteMessage("\n\n=== ALL DETAIL MTEXTS (raw vs stripped) ===");
-            using (var tr2 = db.TransactionManager.StartTransaction())
-            {
-                var bt2 = (BlockTable)tr2.GetObject(db.BlockTableId, OpenMode.ForRead);
-                var msBtr = (BlockTableRecord)tr2.GetObject(
-                    bt2[BlockTableRecord.ModelSpace], OpenMode.ForRead);
-
-                int idx = 0;
-                foreach (ObjectId id in msBtr)
-                {
-                    var ent = tr2.GetObject(id, OpenMode.ForRead) as Entity;
-                    if (ent == null) continue;
-
-                    string raw = null;
-                    double x = 0, y = 0;
-                    string entType = "?";
-                    if (ent is MText mt2)
-                    {
-                        raw = mt2.Contents;
-                        x = mt2.Location.X;
-                        y = mt2.Location.Y;
-                        entType = "MText";
-                    }
-                    else if (ent is DBText dbt)
-                    {
-                        raw = dbt.TextString;
-                        x = dbt.Position.X;
-                        y = dbt.Position.Y;
-                        entType = "DBText";
-                    }
-                    else continue;
-
-                    if (raw == null) continue;
-                    if (!raw.ToUpperInvariant().Contains("DETAIL")) continue;
-
-                    string stripped = StripMTextFormatCodes(raw);
-
-                    string detailRxPattern = @"\bDETAIL\s+\S*\d+";
-                    var rx = new System.Text.RegularExpressions.Regex(
-                        detailRxPattern,
-                        System.Text.RegularExpressions.RegexOptions.IgnoreCase);
-                    var rxMatch = rx.Match(stripped);
-
-                    idx++;
-                    ed.WriteMessage("\n[{0}] {1} @ ({2:F1}, {3:F1}):", idx, entType, x, y);
-                    ed.WriteMessage("\n  RAW:      {0}", raw);
-                    ed.WriteMessage("\n  STRIPPED: {0}", stripped);
-                    ed.WriteMessage("\n  Regex match: {0}",
-                        rxMatch.Success ? "\"" + rxMatch.Value + "\"" : "NO MATCH");
-                }
-                tr2.Commit();
-            }
-            ed.WriteMessage("\n=== end DETAIL dump ===");
-
-            // 2. Per-layout: bbox viewportów + które teksty wpadają
-            using (var tr = db.TransactionManager.StartTransaction())
-            {
-                var layoutDict = (DBDictionary)tr.GetObject(db.LayoutDictionaryId, OpenMode.ForRead);
-                foreach (DBDictionaryEntry entry in layoutDict)
-                {
-                    var layout = tr.GetObject(entry.Value, OpenMode.ForRead) as Layout;
-                    if (layout == null) continue;
-                    if (string.Equals(layout.LayoutName, "Model", StringComparison.OrdinalIgnoreCase))
-                        continue;
-
-                    ed.WriteMessage("\n\nLayout: {0}", layout.LayoutName);
-                    var vpExtents = ComputeVpExtentsForLayout(tr, layout);
-
-                    for (int i = 0; i < vpExtents.Count; i++)
-                    {
-                        var (xMin, yMin, xMax, yMax) = vpExtents[i];
-                        ed.WriteMessage(
-                            "\n  VP[{0}]: ({1:F1},{2:F1})→({3:F1},{4:F1}) w={5:F1} h={6:F1}",
-                            i, xMin, yMin, xMax, yMax, xMax - xMin, yMax - yMin);
-
-                        bool any = false;
-                        foreach (var t in allTexts)
-                        {
-                            if (t.x >= xMin && t.x <= xMax && t.y >= yMin && t.y <= yMax)
-                            {
-                                if (!any) { ed.WriteMessage("\n    Contains:"); any = true; }
-                                ed.WriteMessage("\n      [{0}] @ ({1:F1},{2:F1}) — \"{3}\"",
-                                    t.cat, t.x, t.y, t.text);
-                            }
-                        }
-                        if (!any) ed.WriteMessage(" (empty)");
-                    }
-                }
-                tr.Commit();
-            }
-            ed.WriteMessage("\n=== end DIAG ===\n");
         }
 
         // Wstawia ramki z odnośnikami "SEE DRG ..." na każdym layoutcie RC.
