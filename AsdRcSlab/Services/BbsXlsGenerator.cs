@@ -494,43 +494,57 @@ namespace AsdRcSlab
         }
 
         /// <summary>
-        /// Splituje pojedynczy długi address na max N linii (default 3) po
-        /// boundary z przecinka. Jeśli user już wpisał line2 albo line3 —
-        /// wrap się nie odbywa (zakładamy że user wie co robi).
+        /// Auto-split address na 3 linie BBS (H5, H6, H7) z auto-wrap.
+        ///
+        /// Logika:
+        /// - Jeśli line 1 mieści się w max_per_line (≤25 znaków): zachowaj
+        ///   layout user'a (line1/line2/line3 1:1) — user wie co robi.
+        /// - Jeśli line 1 jest za długie: concat wszystkich nie-pustych linii
+        ///   w jeden tekst, split po przecinku, pakuj do max_lines linii
+        ///   po max_per_line znaków.
+        ///
+        /// Drugi przypadek obsługuje SP116QL001 gdzie PROJ_1 ma cały adres
+        /// ulica/miasto, a PROJ_2 ma osobno postcode — bez nowej logiki
+        /// plugin by zostawił L1 niezmienione (39 znaków, Excel przycina).
         /// </summary>
         private static List<string> SplitAddressIfNeeded(
             string line1, string line2, string line3,
             int maxPerLine = 25, int maxLines = 3)
         {
-            // Jeśli user wpisał coś w line2 albo line3 — używamy jak jest.
-            bool userMultilineProvided =
-                !string.IsNullOrWhiteSpace(line2)
-                || !string.IsNullOrWhiteSpace(line3);
-            if (userMultilineProvided)
-                return new List<string> {
-                    line1 ?? "",
-                    line2 ?? "",
-                    line3 ?? ""
-                };
+            string l1 = (line1 ?? "").Trim();
+            string l2 = (line2 ?? "").Trim();
+            string l3 = (line3 ?? "").Trim();
 
-            // Tylko line1 wypełniona — sprawdź czy wymaga split'u.
-            string text = (line1 ?? "").Trim();
-            if (text.Length <= maxPerLine)
-                return new List<string> { text, "", "" };
+            // Jeśli L1 mieści się — zachowaj user'owy layout
+            if (l1.Length <= maxPerLine)
+                return new List<string> { l1, l2, l3 };
 
-            // Split po przecinku, zbieraj fragmenty w linie respecting maxPerLine
-            var parts = text.Split(',');
-            var result = new List<string>();
-            var current = "";
+            // L1 za długie — concat + split
+            var nonEmpty = new List<string>();
+            if (!string.IsNullOrEmpty(l1)) nonEmpty.Add(l1);
+            if (!string.IsNullOrEmpty(l2)) nonEmpty.Add(l2);
+            if (!string.IsNullOrEmpty(l3)) nonEmpty.Add(l3);
+            string full = string.Join(" ", nonEmpty);
 
-            for (int i = 0; i < parts.Length; i++)
+            if (string.IsNullOrEmpty(full))
+                return new List<string> { "", "", "" };
+            if (full.Length <= maxPerLine)
+                return new List<string> { full, "", "" };
+
+            // Split po przecinku
+            var parts = new List<string>();
+            foreach (var p in full.Split(','))
             {
-                string part = parts[i].Trim();
-                if (part.Length == 0) continue;
+                string t = p.Trim();
+                if (!string.IsNullOrEmpty(t)) parts.Add(t);
+            }
 
+            var result = new List<string>();
+            string current = "";
+            for (int i = 0; i < parts.Count; i++)
+            {
                 // Dodaj przecinek do nie-ostatnich
-                string token = part + (i < parts.Length - 1 ? "," : "");
-
+                string token = parts[i] + (i < parts.Count - 1 ? "," : "");
                 string candidate = string.IsNullOrEmpty(current)
                     ? token : current + " " + token;
 
@@ -540,12 +554,11 @@ namespace AsdRcSlab
                 }
                 else
                 {
-                    // Flush current, zacznij nową linię
                     if (!string.IsNullOrEmpty(current))
                     {
                         if (result.Count >= maxLines - 1)
                         {
-                            // Ostatnia linia — wciśnij resztę tutaj
+                            // Ostatnia linia — wciśnij resztę bez wrap
                             current += " " + token;
                         }
                         else
@@ -563,10 +576,8 @@ namespace AsdRcSlab
             if (!string.IsNullOrEmpty(current))
                 result.Add(current);
 
-            // Zapewnij dokładnie maxLines elementów
-            while (result.Count < maxLines)
-                result.Add("");
-            return result;
+            while (result.Count < maxLines) result.Add("");
+            return result.GetRange(0, maxLines);
         }
 
         /// <summary>

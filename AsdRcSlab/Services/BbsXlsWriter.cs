@@ -236,35 +236,40 @@ namespace AsdRcSlab
             else
                 GetOrCreate(row, ColH).SetCellValue((double)code);
 
-            // I-M: per-row logic
+            // I-M: per-code branches
             if (isStraight)
             {
-                // Special case code 0: I="STR", J-M nietykane.
-                // Cells pre-existing po Clear są Blank z zachowanym stylem.
+                // Code 0: I="STR", reszta nietykana
                 GetOrCreate(row, ColI).SetCellValue("STR");
             }
             else if (isLink)
             {
-                // Closed links (51, 63): tylko A i B. C, D, E/R NIE pisane.
-                // (Dla 51/63 wymuszone blank w C/D nawet jeśli input ma
-                // niezerowe wartości — Excel template formuła nie bierze
-                // tych pod uwagę dla zamkniętych strzemion.)
-                GetOrCreate(row, ColI).SetCellValue(b.A);
-                GetOrCreate(row, ColJ).SetCellValue(b.B);
-                // K (C), L (D), M (E/R) — NIE tykamy.
+                // Code 51/63: tylko A, B (skip jeśli 0); C, D, E/R nietykane
+                WriteIfNonzero(row, ColI, b.A);
+                WriteIfNonzero(row, ColJ, b.B);
             }
             else
             {
-                // Wszystkie pozostałe shape codes: A, B, C, D, E/R z input.
-                // BEZ per-code dimension logic — user'owa decyzja po teście
-                // SP116QL001 (shape code 15 gubił B).
-                GetOrCreate(row, ColI).SetCellValue(b.A);
-                GetOrCreate(row, ColJ).SetCellValue(b.B);
-                GetOrCreate(row, ColK).SetCellValue(b.C);
-                GetOrCreate(row, ColL).SetCellValue(b.D);
+                // Wszystkie inne: A, B, C, D, E/R z input — skip jeśli 0
+                WriteIfNonzero(row, ColI, b.A);
+                WriteIfNonzero(row, ColJ, b.B);
+                WriteIfNonzero(row, ColK, b.C);
+                WriteIfNonzero(row, ColL, b.D);
                 if (b.EOrR.HasValue)
-                    GetOrCreate(row, ColM).SetCellValue(b.EOrR.Value);
+                    WriteIfNonzero(row, ColM, b.EOrR.Value);
             }
+        }
+
+        /// <summary>
+        /// Pisze wartość liczbową do komórki TYLKO jeśli != 0. Wartość 0
+        /// pozostawia komórkę nietykaną (pre-existing Blank z zachowanym
+        /// formatem zostaje, lub komórka pozostaje nieistniejąca jeśli
+        /// nie była w template).
+        /// </summary>
+        private static void WriteIfNonzero(IRow row, int col, double value)
+        {
+            if (value == 0) return;
+            GetOrCreate(row, col).SetCellValue(value);
         }
 
         /// <summary>
