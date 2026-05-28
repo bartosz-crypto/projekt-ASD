@@ -1442,6 +1442,7 @@ namespace AsdRcSlab
         {
             suffixWidth = 0;
             var layoutNames = new List<string>();
+            var layoutTabOrders = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
             var drawingNumbers = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
 
             using (var tr = gaDb.TransactionManager.StartTransaction())
@@ -1478,6 +1479,7 @@ namespace AsdRcSlab
                     if (!string.IsNullOrEmpty(drawingNo))
                     {
                         layoutNames.Add(layout.LayoutName);
+                        layoutTabOrders[layout.LayoutName] = layout.TabOrder;
                         drawingNumbers[layout.LayoutName] = drawingNo;
                     }
                 }
@@ -1486,7 +1488,8 @@ namespace AsdRcSlab
 
             if (layoutNames.Count == 0) return null;
 
-            layoutNames.Sort(StringComparer.OrdinalIgnoreCase);
+            // sortuj po TabOrder (kolejność tabów w UI AutoCAD), nie alfabetycznie po nazwie
+            layoutNames.Sort((a, b) => layoutTabOrders[a].CompareTo(layoutTabOrders[b]));
             string firstDrawingNo = drawingNumbers[layoutNames[0]];
 
             int dashIdx = firstDrawingNo.LastIndexOf('-');
@@ -1803,16 +1806,19 @@ namespace AsdRcSlab
             {
                 var layoutDict = (DBDictionary)tr.GetObject(db.LayoutDictionaryId, OpenMode.ForRead);
 
-                // Posortuj alfabetycznie — określa indeks każdego layoutu dla DRAWING_NUMBER
+                // Sortuj po TabOrder (kolejność tabów w UI AutoCAD), nie alfabetycznie po nazwie
                 var sortedLayoutNames = new List<string>();
+                var sortedLayoutTabOrders = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
                 foreach (DBDictionaryEntry sortEntry in layoutDict)
                 {
                     var sortLayout = tr.GetObject(sortEntry.Value, OpenMode.ForRead) as Layout;
                     if (sortLayout == null) continue;
                     if (string.Equals(sortLayout.LayoutName, "Model", StringComparison.OrdinalIgnoreCase)) continue;
                     sortedLayoutNames.Add(sortLayout.LayoutName);
+                    sortedLayoutTabOrders[sortLayout.LayoutName] = sortLayout.TabOrder;
                 }
-                sortedLayoutNames.Sort(StringComparer.OrdinalIgnoreCase);
+                // sortuj po TabOrder (kolejność tabów w UI AutoCAD), nie alfabetycznie po nazwie
+                sortedLayoutNames.Sort((a, b) => sortedLayoutTabOrders[a].CompareTo(sortedLayoutTabOrders[b]));
                 var layoutNameToIdx = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
                 for (int i = 0; i < sortedLayoutNames.Count; i++)
                     layoutNameToIdx[sortedLayoutNames[i]] = i;
