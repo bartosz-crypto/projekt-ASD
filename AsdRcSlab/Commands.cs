@@ -1565,6 +1565,13 @@ namespace AsdRcSlab
         private static string ApplyParagraphTail(string contents, string marker, string newTail)
         {
             if (string.IsNullOrEmpty(contents) || newTail == null) return contents;
+
+            // Wymuś WHITE color (\C7;) na wartości — warstwa RC SD-Text ma ByLayer=yellow,
+            // a ogon GA może zawierać własne color overrides (\C4;, \c0;) które krwawią.
+            // Strip \C<n>; i \c<n>; z ogona + prepend \C7; gwarantuje stały biały kolor.
+            string cleanTail = Regex.Replace(newTail, @"\\[Cc]\d+;", "");
+            string tailWithColor = @"\C7;" + cleanTail;
+
             string[] paragraphs = contents.Split(new[] { @"\P" }, StringSplitOptions.None);
             bool changed = false;
             for (int i = 0; i < paragraphs.Length; i++)
@@ -1573,7 +1580,7 @@ namespace AsdRcSlab
                 if (markerIdx < 0) continue;
                 int eqIdx = paragraphs[i].IndexOf('=', markerIdx);
                 if (eqIdx < 0) continue;
-                paragraphs[i] = paragraphs[i].Substring(0, eqIdx + 1) + newTail;
+                paragraphs[i] = paragraphs[i].Substring(0, eqIdx + 1) + tailWithColor;
                 changed = true;
             }
             return changed ? string.Join(@"\P", paragraphs) : contents;
