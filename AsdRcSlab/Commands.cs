@@ -1159,12 +1159,6 @@ namespace AsdRcSlab
 
                     foreach (var (cat, x, y) in msTexts)
                     {
-                        // PH details sa zwykle w osobnych viewportach lub odleglej
-                        // czesci model space; vpExtents moze ich nie obejmowac.
-                        // Skoro sa w model space drawingu, sa czescia dokumentacji
-                        // layoutu - nie wymagamy viewport visibility dla Ph.
-                        if (cat == MsTextCategory.Ph) { hasPh = true; continue; }
-
                         bool visible = vpExtents.Any(e => x >= e.xMin && x <= e.xMax && y >= e.yMin && y <= e.yMax);
                         if (!visible) continue;
 
@@ -1173,6 +1167,7 @@ namespace AsdRcSlab
                             case MsTextCategory.MainBottom: hasBottom   = true; break;
                             case MsTextCategory.MainTop:    hasTop      = true; break;
                             case MsTextCategory.Section:    hasSections = true; break;
+                            case MsTextCategory.Ph:         hasPh       = true; break;
                             case MsTextCategory.Detail:     hasDetail   = true; break;
                         }
                     }
