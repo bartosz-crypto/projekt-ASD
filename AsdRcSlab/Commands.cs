@@ -1746,6 +1746,10 @@ namespace AsdRcSlab
                         {
                             mt.UpgradeOpen();
                             mt.Contents = newContents;
+                            // Wymus bialy kolor obiektu MText (override layer color SD-Text=2=yellow).
+                            // Inline \C<n>; overrides w Contents (np. \C4; cyan header) zachowuja
+                            // wyzszy priority - kolorowe headery pozostaja nienaruszone.
+                            mt.ColorIndex = 7;
                             layoutTouched = true;
                         }
                     }
