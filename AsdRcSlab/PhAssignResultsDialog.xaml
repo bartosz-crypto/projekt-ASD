@@ -54,6 +54,7 @@
         <!-- Tabela — IsReadOnly ustawiane programowo w konstruktorze -->
         <DataGrid Grid.Row="3" x:Name="Grid" AutoGenerateColumns="False"
                   CellEditEnding="Grid_CellEditEnding"
+                  LoadingRow="Grid_LoadingRow"
                   RowHeaderWidth="0"
                   BorderBrush="#CCCCCC" BorderThickness="1"
                   GridLinesVisibility="Horizontal"

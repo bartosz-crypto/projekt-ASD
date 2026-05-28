@@ -245,6 +245,28 @@ namespace AsdRcSlab
             }
         }
 
+        private static readonly System.Windows.Media.SolidColorBrush _manualBg =
+            new System.Windows.Media.SolidColorBrush(System.Windows.Media.Color.FromRgb(0xB7, 0x1C, 0x1C));
+
+        private void Grid_LoadingRow(object sender, DataGridRowEventArgs e)
+        {
+            var vm = e.Row.Item as PileViewModel;
+            if (vm == null) return;
+
+            // Manual Background bypass'uje DataTrigger / theme / AlternatingRowBackground.
+            // Property setter z code ma absolutny priorytet nad XAML Setters.
+            if (vm.PhAction == "MANUAL")
+            {
+                e.Row.Background = _manualBg;
+                e.Row.Foreground = System.Windows.Media.Brushes.White;
+            }
+            else
+            {
+                e.Row.ClearValue(DataGridRow.BackgroundProperty);
+                e.Row.ClearValue(DataGridRow.ForegroundProperty);
+            }
+        }
+
         private void Grid_CellEditEnding(object sender, DataGridCellEditEndingEventArgs e)
         {
             if (e.EditAction != DataGridEditAction.Commit) return;
