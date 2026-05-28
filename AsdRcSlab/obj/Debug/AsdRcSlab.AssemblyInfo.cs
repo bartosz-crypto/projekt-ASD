@@ -13,7 +13,7 @@ using System.Reflection;
 [assembly: System.Reflection.AssemblyCompanyAttribute("AsdRcSlab")]
 [assembly: System.Reflection.AssemblyConfigurationAttribute("Debug")]
 [assembly: System.Reflection.AssemblyFileVersionAttribute("1.0.0.0")]
-[assembly: System.Reflection.AssemblyInformationalVersionAttribute("1.0.0+9d2915526568a168c73cf40d02d931638eb384e1")]
+[assembly: System.Reflection.AssemblyInformationalVersionAttribute("1.0.0+5bbb6e336e68c407f69993b63c3b8e8a7795b29b")]
 [assembly: System.Reflection.AssemblyProductAttribute("AsdRcSlab")]
 [assembly: System.Reflection.AssemblyTitleAttribute("AsdRcSlab")]
 [assembly: System.Reflection.AssemblyVersionAttribute("1.0.0.0")]

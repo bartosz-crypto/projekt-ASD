@@ -10,11 +10,11 @@ none
 false
 TRACE;DEBUG;NETFRAMEWORK;NET48;
 
-61881518767
+10-294142684
 
-16557559918
-28-183437141
-BmmResultsDialog.xaml;LapCalculatorDialog.xaml;NewProjectDialog.xaml;PhAssignResultsDialog.xaml;ReinforcementStubDialog.xaml;SettingsDialog.xaml;
+372003090129
+341919034025
+BbsGeneratorDialog.xaml;BmmResultsDialog.xaml;ImrPlotPickerDialog.xaml;LapCalculatorDialog.xaml;NewProjectDialog.xaml;PhAssignResultsDialog.xaml;PlotPickerDialog.xaml;ReinforcementStubDialog.xaml;SettingsDialog.xaml;SheetPickerDialog.xaml;
 
 False
 

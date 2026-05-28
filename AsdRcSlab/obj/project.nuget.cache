@@ -1,13 +1,16 @@
 {
   "version": 2,
-  "dgSpecHash": "uLKfQqbMp6U=",
+  "dgSpecHash": "ts6CLSaz/T4=",
   "success": true,
   "projectFilePath": "C:\\Users\\Dell\\Desktop\\ClaudeCode\\AsdRcSlab\\AsdRcSlab.csproj",
   "expectedPackageFiles": [
     "C:\\Users\\Dell\\.nuget\\packages\\epplus\\4.5.3.3\\epplus.4.5.3.3.nupkg.sha512",
     "C:\\Users\\Dell\\.nuget\\packages\\microsoft.netframework.referenceassemblies\\1.0.3\\microsoft.netframework.referenceassemblies.1.0.3.nupkg.sha512",
     "C:\\Users\\Dell\\.nuget\\packages\\microsoft.netframework.referenceassemblies.net48\\1.0.3\\microsoft.netframework.referenceassemblies.net48.1.0.3.nupkg.sha512",
-    "C:\\Users\\Dell\\.nuget\\packages\\newtonsoft.json\\13.0.3\\newtonsoft.json.13.0.3.nupkg.sha512"
+    "C:\\Users\\Dell\\.nuget\\packages\\newtonsoft.json\\13.0.3\\newtonsoft.json.13.0.3.nupkg.sha512",
+    "C:\\Users\\Dell\\.nuget\\packages\\npoi\\2.5.6\\npoi.2.5.6.nupkg.sha512",
+    "C:\\Users\\Dell\\.nuget\\packages\\portable.bouncycastle\\1.8.9\\portable.bouncycastle.1.8.9.nupkg.sha512",
+    "C:\\Users\\Dell\\.nuget\\packages\\sharpziplib\\1.3.3\\sharpziplib.1.3.3.nupkg.sha512"
   ],
   "logs": []
 }
