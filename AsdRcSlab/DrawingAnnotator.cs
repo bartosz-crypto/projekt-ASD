@@ -48,6 +48,7 @@ namespace AsdRcSlab
             // ── Cleanup encji z poprzedniego runu zanim dodamy nowe (idempotent)
             CleanupPreviousAnnotations(db);
 
+            var manualPileIds = new List<string>();
             using (var tr = db.TransactionManager.StartTransaction())
             {
                 var bt  = (BlockTable)tr.GetObject(db.BlockTableId, OpenMode.ForRead);
@@ -123,6 +124,13 @@ namespace AsdRcSlab
                 // ── 3. Annotate each pile ─────────────────────────────────────────────
                 foreach (var pile in piles)
                 {
+                    // MANUAL → collect for jig insertion, no drawing annotation
+                    if (string.Equals(pile.PhAction, "MANUAL", StringComparison.OrdinalIgnoreCase))
+                    {
+                        manualPileIds.Add(pile.PileId);
+                        continue;
+                    }
+
                     // NO ACTION → no annotation
                     if (pile.PhAction == "NO ACTION" ||
                         string.IsNullOrEmpty(pile.PhAction))
@@ -193,6 +201,7 @@ namespace AsdRcSlab
                 tr.Commit();
             }
 
+            result.ManualPileIds = manualPileIds;
             result.Log += BuildLog(result);
             return result;
         }
@@ -245,7 +254,7 @@ namespace AsdRcSlab
         private static (int PhLabelsUpdated, int UnusedMarked) AnnotatePhDetailLabels(
             Transaction tr, BlockTableRecord btr, Database db, StringBuilder log)
         {
-            var phRegex   = new Regex(@"\bPH3-RE\b|\bPH([1-9])\b");
+            var phRegex   = new Regex(@"\bPH([1-9])\b");
             // Loosened: matches anything from '(' through 'No...LOCATIONS?' to ')'.
             // Original strict regex failed when MText encoding inserted invisible chars
             // between the digit and 'No' (e.g. formatting codes or non-breaking space).
@@ -269,9 +278,7 @@ namespace AsdRcSlab
                 var phMatch = phRegex.Match(contents);
                 if (!phMatch.Success) { skippedNoPh++; continue; }
 
-                string phKey = phMatch.Value.StartsWith("PH3-RE", StringComparison.Ordinal)
-                    ? "PH3-RE"
-                    : "PH" + phMatch.Groups[1].Value;
+                string phKey = "PH" + phMatch.Groups[1].Value;
 
                 var piles = SessionData.Piles
                     .Where(p => string.Equals(p.PhAction, phKey, StringComparison.OrdinalIgnoreCase))
@@ -470,13 +477,8 @@ namespace AsdRcSlab
         private static string FormatPhMText(string phAction)
         {
             // Format: PH + number in Romans font, e.g. "PH{\Fromans|c238;3}"
-            // Extract number from phAction (PH3, PH3-RE, EXCEED, etc.)
-            var m = Regex.Match(phAction, @"\d+(-\w+)?");
+            var m = Regex.Match(phAction, @"\d+");
             string suffix = m.Success ? m.Value : phAction.Replace("PH", "");
-
-            if (phAction == "EXCEED")
-                return @"{\CEXCEED}"; // fallback plain text
-
             return $@"PH{{\Fromans|c238;{suffix}}}";
         }
 
@@ -488,8 +490,6 @@ namespace AsdRcSlab
                 case "PH1": case "PH2": case "PH3": return 3;   // green
                 case "PH4": case "PH5": case "PH6": return 2;   // yellow
                 case "PH7": case "PH8": case "PH9": return 1;   // red
-                case "PH3-RE":                      return 6;   // magenta
-                case "EXCEED":                      return 10;  // dark red / maroon
                 default:                            return 7;   // white
             }
         }
@@ -513,6 +513,7 @@ namespace AsdRcSlab
         public List<string> Annotated        { get; set; } = new List<string>();
         public List<string> Skipped          { get; set; } = new List<string>();
         public List<string> NotFound         { get; set; } = new List<string>();
+        public List<string> ManualPileIds    { get; set; } = new List<string>();
         public string       Log              { get; set; } = "";
         public bool         WrongDrawing     { get; set; }
         public int          PhLabelsUpdated  { get; set; }

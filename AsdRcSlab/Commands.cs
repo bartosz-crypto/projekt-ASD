@@ -1,4 +1,5 @@
 ﻿using Autodesk.AutoCAD.Runtime;
+using Autodesk.AutoCAD.Colors;
 using Autodesk.AutoCAD.DatabaseServices;
 using Autodesk.AutoCAD.EditorInput;
 using Autodesk.AutoCAD.Geometry;
@@ -951,11 +952,76 @@ namespace AsdRcSlab
                 var dlg = new PhAssignResultsDialog(SessionData.Piles, showUpdateButton: true);
                 AcApp.ShowModalWindow(AcApp.MainWindow.Handle, dlg, false);
 
+                var manualIds = dlg.LastAnnotateResult?.ManualPileIds;
+                if (manualIds != null && manualIds.Count > 0)
+                    InsertManualText(manualIds);
             }
             catch (System.Exception ex)
             {
                 doc.Editor.WriteMessage($"\nPAA error: {ex.Message}\n");
             }
+        }
+
+        private void InsertManualText(List<string> manualPileIds)
+        {
+            var doc = AcApp.DocumentManager.MdiActiveDocument;
+            if (doc == null) return;
+            var db  = doc.Database;
+            var ed  = doc.Editor;
+
+            string contents = $"PILES: {string.Join(", ", manualPileIds)} — MANUAL DESIGN";
+            const double textHeight = 200.0;
+
+            using (var tr = db.TransactionManager.StartTransaction())
+            {
+                ObjectId styleId = GetOrCreateRomansTextStyle(db, tr);
+
+                var jig = new ManualTextInsertionJig(contents, textHeight, styleId, db);
+                var res = ed.Drag(jig);
+
+                if (res.Status != PromptStatus.OK)
+                {
+                    tr.Abort();
+                    ed.WriteMessage("\nMANUAL text insertion cancelled.\n");
+                    return;
+                }
+
+                var bt  = (BlockTable)tr.GetObject(db.BlockTableId, OpenMode.ForRead);
+                var btr = (BlockTableRecord)tr.GetObject(bt[BlockTableRecord.ModelSpace], OpenMode.ForWrite);
+
+                var mt = new MText();
+                mt.SetDatabaseDefaults();
+                mt.Contents    = contents;
+                mt.TextHeight  = textHeight;
+                mt.TextStyleId = styleId;
+                mt.Location    = jig.Point;
+                mt.Attachment  = AttachmentPoint.MiddleLeft;
+                mt.Width       = 0;
+                mt.Color       = Color.FromColorIndex(ColorMethod.ByAci, 1);
+                mt.Layer       = DrawingAnnotator.LayerPhText;
+
+                btr.AppendEntity(mt);
+                tr.AddNewlyCreatedDBObject(mt, true);
+
+                tr.Commit();
+                ed.WriteMessage($"\nMANUAL text inserted at ({jig.Point.X:F0}, {jig.Point.Y:F0}).\n");
+            }
+        }
+
+        private static ObjectId GetOrCreateRomansTextStyle(Database db, Transaction tr)
+        {
+            var tt = (TextStyleTable)tr.GetObject(db.TextStyleTableId, OpenMode.ForRead);
+            const string styleName = "romans";
+            if (tt.Has(styleName))
+                return tt[styleName];
+
+            var rec = new TextStyleTableRecord();
+            rec.Name     = styleName;
+            rec.FileName = "romans.shx";
+            tt.UpgradeOpen();
+            tt.Add(rec);
+            tr.AddNewlyCreatedDBObject(rec, true);
+            return rec.ObjectId;
         }
 
         [CommandMethod("ASD-PHR")]
@@ -991,10 +1057,10 @@ namespace AsdRcSlab
             sb.AppendLine("PHV — PH VALIDATION:");
             sb.AppendLine(new string('-', 40));
 
-            // R77: brak EXCEED
-            var exceed = SessionData.Piles.Where(p => p.PhAction == "EXCEED").ToList();
+            // R77: brak MANUAL z powodu Util > 100%
+            var exceed = SessionData.Piles.Where(p => p.PhAction == "MANUAL" && p.UtilPct > 100).ToList();
             if (exceed.Any())
-                sb.AppendLine($"R77: FAIL — Util > 100%: {string.Join(", ", exceed.Select(p => p.PileId))}");
+                sb.AppendLine($"R77: FAIL — Util > 100% (MANUAL): {string.Join(", ", exceed.Select(p => p.PileId))}");
             else
                 sb.AppendLine("R77: OK — No piles with Util > 100%");
 

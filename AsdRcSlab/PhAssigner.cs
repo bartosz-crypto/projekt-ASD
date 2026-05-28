@@ -10,8 +10,8 @@ namespace AsdRcSlab
         // ADD H12@200: PH1=INT, PH2=EDGE, PH3=CORNER
         // ADD H16@200: PH4=INT, PH5=EDGE, PH6=CORNER
         // ADD H16@100: PH7=INT, PH8=EDGE, PH9=CORNER
-        // REENTRANT  → PH3-RE (niezależnie od action)
-        // >100%      → EXCEED
+        // REENTRANT  → MANUAL (skomplikowana geometria)
+        // >100%      → MANUAL (overload)
 
         public static List<PileData> AssignAll(List<PileData> piles)
         {
@@ -34,12 +34,12 @@ namespace AsdRcSlab
 
         private static string AssignOne(PileData p)
         {
-            if (p.UtilPct > 100) return "EXCEED";
+            if (p.UtilPct > 100) return "MANUAL";
 
             string loc    = (p.LocationType ?? "").ToUpperInvariant().Trim();
             string action = (p.PunchingAction ?? "").ToUpperInvariant().Trim();
 
-            if (loc == "REENTRANT") return "PH3-RE";
+            if (loc == "REENTRANT") return "MANUAL";
 
             // Anything that is not "ADD H..." gets no annotation
             if (!action.StartsWith("ADD H")) return "NO ACTION";
@@ -78,14 +78,9 @@ namespace AsdRcSlab
             var sb = new StringBuilder();
             sb.Append($"{locWord} PILE CONDITION {phCode}");
 
-            if (phCode == "PH3-RE")
-                sb.Append($" EXTRA BARS (5No LOCATIONS)");
-            else
-            {
-                string bars = PhToBarDescription(phCode);
-                if (!string.IsNullOrEmpty(bars))
-                    sb.Append($" EXTRA BARS {bars}");
-            }
+            string bars = PhToBarDescription(phCode);
+            if (!string.IsNullOrEmpty(bars))
+                sb.Append($" EXTRA BARS {bars}");
 
             sb.Append(" SCALE 1:25");
             sb.Append($" APPLICABLE FOR {pileWord} {pileList}");

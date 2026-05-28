@@ -45,6 +45,8 @@ namespace AsdRcSlab
     public partial class PhAssignResultsDialog : Window
     {
         private readonly List<PileData> _piles;
+        private AnnotationResult _lastResult;
+        public AnnotationResult LastAnnotateResult => _lastResult;
 
         public PhAssignResultsDialog(List<PileData> piles, bool showUpdateButton = false)
         {
@@ -95,16 +97,15 @@ namespace AsdRcSlab
                 string.Equals(p.PhAction, ph, StringComparison.OrdinalIgnoreCase));
 
             int p1 = CountFor("PH1"), p2 = CountFor("PH2"), p3 = CountFor("PH3");
-            int p3re = CountFor("PH3-RE");
             int p4 = CountFor("PH4"), p5 = CountFor("PH5"), p6 = CountFor("PH6");
             int p7 = CountFor("PH7"), p8 = CountFor("PH8"), p9 = CountFor("PH9");
-            int exceed = CountFor("EXCEED"), noAct = CountFor("NO ACTION");
+            int manual = CountFor("MANUAL"), noAct = CountFor("NO ACTION");
 
             TxtStats.Text =
                 $"Total: {total} piles  |  " +
-                $"PH1:{p1}  PH2:{p2}  PH3:{p3}  PH3-RE:{p3re}  " +
+                $"PH1:{p1}  PH2:{p2}  PH3:{p3}  " +
                 $"PH4:{p4}  PH5:{p5}  PH6:{p6}  PH7:{p7}  PH8:{p8}  PH9:{p9}  " +
-                $"EXCEED:{exceed}  NO ACTION:{noAct}";
+                $"MANUAL:{manual}  NO ACTION:{noAct}";
 
             TxtTotals.Text = BuildPhTotalsLine(_piles);
         }
@@ -144,6 +145,7 @@ namespace AsdRcSlab
             try
             {
                 var res = DrawingAnnotator.Annotate(SessionData.Piles);
+                _lastResult = res;
 
                 if (res.WrongDrawing)
                 {
@@ -157,15 +159,22 @@ namespace AsdRcSlab
                 }
 
                 string totalsLine = BuildPhTotalsLine(SessionData.Piles);
+                string manualNote = res.ManualPileIds.Count > 0
+                    ? $"\nMANUAL piles ({res.ManualPileIds.Count}): {string.Join(", ", res.ManualPileIds)}\n→ Click point in model space to insert MANUAL text."
+                    : "";
                 string msg =
                     $"Drawing updated.\n\n" +
                     $"Labelled piles: {res.Annotated.Count}\n" +
                     $"Skipped (NO ACTION): {res.Skipped.Count}\n" +
                     $"Not found: {res.NotFound.Count}\n" +
-                    $"PH templates (AP-TEXT): {res.PhLabelsUpdated}\n\n" +
+                    $"PH templates (AP-TEXT): {res.PhLabelsUpdated}" +
+                    manualNote + "\n\n" +
                     totalsLine;
                 MessageBox.Show(msg, "Update Drawing",
                     MessageBoxButton.OK, MessageBoxImage.Information);
+
+                if (res.ManualPileIds.Count > 0)
+                    this.Close();
             }
             catch (Exception ex)
             {
@@ -239,10 +248,9 @@ namespace AsdRcSlab
             switch (ph)
             {
                 case "PH1":    return Color.FromArgb(0xE2, 0xEF, 0xDA);
-                case "PH3-RE": return Color.FromArgb(0xF3, 0xE5, 0xF5);
                 case "PH7": case "PH8": case "PH9":
                     return Color.FromArgb(0xFC, 0xE4, 0xEC);
-                case "EXCEED": return Color.FromArgb(0xB7, 0x1C, 0x1C);
+                case "MANUAL": return Color.FromArgb(0xB7, 0x1C, 0x1C);
                 default:       return Color.FromArgb(0xFF, 0xF8, 0xDC);
             }
         }

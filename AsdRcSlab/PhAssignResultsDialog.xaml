@@ -11,14 +11,13 @@
             <sys:String>PH1</sys:String>
             <sys:String>PH2</sys:String>
             <sys:String>PH3</sys:String>
-            <sys:String>PH3-RE</sys:String>
             <sys:String>PH4</sys:String>
             <sys:String>PH5</sys:String>
             <sys:String>PH6</sys:String>
             <sys:String>PH7</sys:String>
             <sys:String>PH8</sys:String>
             <sys:String>PH9</sys:String>
-            <sys:String>EXCEED</sys:String>
+            <sys:String>MANUAL</sys:String>
             <sys:String>NO ACTION</sys:String>
         </x:Array>
     </Window.Resources>
@@ -75,9 +74,6 @@
                         <DataTrigger Binding="{Binding PhAction}" Value="PH1">
                             <Setter Property="Background" Value="#E2EFDA"/>
                         </DataTrigger>
-                        <DataTrigger Binding="{Binding PhAction}" Value="PH3-RE">
-                            <Setter Property="Background" Value="#F3E5F5"/>
-                        </DataTrigger>
                         <DataTrigger Binding="{Binding PhAction}" Value="PH7">
                             <Setter Property="Background" Value="#FCE4EC"/>
                         </DataTrigger>
@@ -87,7 +83,7 @@
                         <DataTrigger Binding="{Binding PhAction}" Value="PH9">
                             <Setter Property="Background" Value="#FCE4EC"/>
                         </DataTrigger>
-                        <DataTrigger Binding="{Binding PhAction}" Value="EXCEED">
+                        <DataTrigger Binding="{Binding PhAction}" Value="MANUAL">
                             <Setter Property="Background" Value="#B71C1C"/>
                             <Setter Property="Foreground" Value="White"/>
                         </DataTrigger>
