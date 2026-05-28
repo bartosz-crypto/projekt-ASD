@@ -28,11 +28,6 @@ namespace AsdRcSlab
         private const string KeyConcreteVolume       = "CONCRETE_VOLUME";
         private const string KeyConcreteDesignated   = "CONCRETE_DESIGNATED_BLOCK";
 
-        private const string KeySlabAreaRaw       = "area_raw";
-        private const string KeySlabPerimeterRaw  = "perimeter_raw";
-        private const string KeySlabThicknessRaw  = "thickness_raw";
-        private const string KeyConcreteVolumeRaw = "volume_raw";
-
         // Klucze dla "prevent-fix" — pełny ogon paragraphu z GA (po '=' do następnego \P).
         // Używane przez ExtractParagraphTail/ApplyParagraphTail w GAI pipeline.
         private const string KeySlabAreaTail        = "slab_area_tail";
@@ -57,68 +52,10 @@ namespace AsdRcSlab
             @"(CONCRETE\s+VOLUME\s*=\s*)([\d.]+)",
             RegexOptions.IgnoreCase);
 
-        // Raw fallback extract: capture all after "=" to first MText control code or end
-        private static readonly Regex SlabAreaRawExtractRx = new Regex(
-            @"SLAB\s+AREA\s*=\s*([^\\]+?)(?=\\|$)",
-            RegexOptions.IgnoreCase);
-        private static readonly Regex SlabPerimeterRawExtractRx = new Regex(
-            @"SLAB\s+PERIMETER\s*=\s*([^\\]+?)(?=\\|$)",
-            RegexOptions.IgnoreCase);
-        private static readonly Regex SlabThicknessRawExtractRx = new Regex(
-            @"SLAB\s+THICKNESS\s*=\s*([^\\]+?)(?=\\|$)",
-            RegexOptions.IgnoreCase);
-        private static readonly Regex ConcreteVolumeRawExtractRx = new Regex(
-            @"CONCRETE\s+VOLUME\s*=\s*([^\\]+?)(?=\\|$)",
-            RegexOptions.IgnoreCase);
-
-        // CONCRETE VOLUME replace w RC: G1=prefix, G2=old value (numeric or MText-formatted), G3=m³ codes z RC (zachowane); stary tail wycinany
-        private static readonly Regex ConcreteVolumeReplaceRx = new Regex(
-            @"(CONCRETE\s+VOLUME\s*=\s*)((?:[^\\]|\\[A-Za-z][^;\\]*;)*?)(\s*m(?:\\[A-Za-z][^;]*;|\s)*[³3]?(?:\\[A-Za-z][^;]*;|\s)*)[^\\]*?(?=\\P|\d+\.\s|\z)",
-            RegexOptions.IgnoreCase);
-
         // Podmienia HYSTOOLS DK90/DK165 — toleruje RTF format codes wewnątrz "DKxx"
         // G1 = "HYSTOOLS DK" + opcjonalne format codes; G2 = trailing format codes po liczbie
         private static readonly Regex HystoolsRx = new Regex(
             @"(HYSTOOLS\s+DK(?:\\[A-Za-z][^;]*;)*)(?:90|165)((?:\\[A-Za-z][^;]*;)*)",
-            RegexOptions.IgnoreCase);
-
-        // Slab replace: group 1 = "X = ", group 2 = old value (numeric or MText-formatted), group 3 = " m"/" mm"
-        private static readonly Regex SlabAreaReplaceRx = new Regex(
-            @"(SLAB\s+AREA\s*=\s*)((?:[^\\]|\\[A-Za-z][^;\\]*;)*?)(\s*m)(?=\\|$)",
-            RegexOptions.IgnoreCase);
-        private static readonly Regex SlabPerimeterReplaceRx = new Regex(
-            @"(SLAB\s+PERIMETER\s*=\s*)((?:[^\\]|\\[A-Za-z][^;\\]*;)*?)(\s*m)(?=\\|$)",
-            RegexOptions.IgnoreCase);
-        private static readonly Regex SlabThicknessReplaceRx = new Regex(
-            @"(SLAB\s+THICKNESS\s*=\s*)((?:[^\\]|\\[A-Za-z][^;\\]*;)*?)(\s*mm)(?=\\|$)",
-            RegexOptions.IgnoreCase);
-
-        // Raw replace: replaces all content after "=" (to first backslash or end) with raw value
-        private static readonly Regex SlabAreaRawReplaceRx = new Regex(
-            @"(SLAB\s+AREA\s*=\s*)[^\\]*",
-            RegexOptions.IgnoreCase);
-        private static readonly Regex SlabPerimeterRawReplaceRx = new Regex(
-            @"(SLAB\s+PERIMETER\s*=\s*)[^\\]*",
-            RegexOptions.IgnoreCase);
-        private static readonly Regex SlabThicknessRawReplaceRx = new Regex(
-            @"(SLAB\s+THICKNESS\s*=\s*)[^\\]*",
-            RegexOptions.IgnoreCase);
-        private static readonly Regex ConcreteVolumeRawReplaceRx = new Regex(
-            @"(CONCRETE\s+VOLUME\s*=\s*)[^\\]*",
-            RegexOptions.IgnoreCase);
-
-        // Universal fallback — brak wymagania unit suffix; lookahead na \P, text suffix, lub koniec
-        private static readonly Regex SlabAreaUniversalRx = new Regex(
-            @"(SLAB\s+AREA\s*=\s*)(?:[^\\]|\\[A-Za-z][^;\\]*;)*?(?=\\P|$)",
-            RegexOptions.IgnoreCase);
-        private static readonly Regex SlabPerimeterUniversalRx = new Regex(
-            @"(SLAB\s+PERIMETER\s*=\s*)(?:[^\\]|\\[A-Za-z][^;\\]*;)*?(?=\\P|$)",
-            RegexOptions.IgnoreCase);
-        private static readonly Regex SlabThicknessUniversalRx = new Regex(
-            @"(SLAB\s+THICKNESS\s*=\s*)(?:[^\\]|\\[A-Za-z][^;\\]*;)*?(?=\\P|\s+U\.N\.O\.|$)",
-            RegexOptions.IgnoreCase);
-        private static readonly Regex ConcreteVolumeUniversalRx = new Regex(
-            @"(CONCRETE\s+VOLUME\s*=\s*)(?:[^\\]|\\[A-Za-z][^;\\]*;)*?(?=\\P|\s+PILE\s+CAP\s+INC\.|$)",
             RegexOptions.IgnoreCase);
 
         // CONCRETE TO BE DESIGNATED block — od frazy do "CERTIFICATE." (włącznie z kropką)
@@ -1679,47 +1616,19 @@ namespace AsdRcSlab
 
                         var m1 = SlabAreaExtractRx.Match(contents);
                         if (m1.Success)
-                        {
                             result[KeySlabArea] = m1.Groups[1].Value;
-                        }
-                        else
-                        {
-                            var rm = SlabAreaRawExtractRx.Match(contents);
-                            if (rm.Success) { string raw = rm.Groups[1].Value.Trim(); if (!string.IsNullOrEmpty(raw)) result[KeySlabAreaRaw] = raw; }
-                        }
 
                         var m2 = SlabPerimeterExtractRx.Match(contents);
                         if (m2.Success)
-                        {
                             result[KeySlabPerimeter] = m2.Groups[1].Value;
-                        }
-                        else
-                        {
-                            var rm = SlabPerimeterRawExtractRx.Match(contents);
-                            if (rm.Success) { string raw = rm.Groups[1].Value.Trim(); if (!string.IsNullOrEmpty(raw)) result[KeySlabPerimeterRaw] = raw; }
-                        }
 
                         var m3 = SlabThicknessExtractRx.Match(contents);
                         if (m3.Success)
-                        {
                             result[KeySlabThickness] = m3.Groups[1].Value;
-                        }
-                        else
-                        {
-                            var rm = SlabThicknessRawExtractRx.Match(contents);
-                            if (rm.Success) { string raw = rm.Groups[1].Value.Trim(); if (!string.IsNullOrEmpty(raw)) result[KeySlabThicknessRaw] = raw; }
-                        }
 
                         var vMatch = ConcreteVolumeExtractRx.Match(contents);
                         if (vMatch.Success)
-                        {
                             result[KeyConcreteVolume] = vMatch.Groups[2].Value;
-                        }
-                        else
-                        {
-                            var rm = ConcreteVolumeRawExtractRx.Match(contents);
-                            if (rm.Success) { string raw = rm.Groups[1].Value.Trim(); if (!string.IsNullOrEmpty(raw)) result[KeyConcreteVolumeRaw] = raw; }
-                        }
 
                         var dMatch = ConcreteDesignatedBlockRx.Match(contents);
                         if (dMatch.Success)
@@ -1777,15 +1686,6 @@ namespace AsdRcSlab
                         if (!contents.Contains("SLAB AREA")) continue;
 
                         string newContents = contents;
-
-                        string vArea    = values.TryGetValue(KeySlabArea,          out var a)   && !string.IsNullOrEmpty(a)   ? a   : null;
-                        string vAreaRaw = values.TryGetValue(KeySlabAreaRaw,       out var ar)  && !string.IsNullOrEmpty(ar)  ? ar  : null;
-                        string vPer     = values.TryGetValue(KeySlabPerimeter,     out var per) && !string.IsNullOrEmpty(per) ? per : null;
-                        string vPerRaw  = values.TryGetValue(KeySlabPerimeterRaw,  out var prr) && !string.IsNullOrEmpty(prr) ? prr : null;
-                        string vTh      = values.TryGetValue(KeySlabThickness,     out var th)  && !string.IsNullOrEmpty(th)  ? th  : null;
-                        string vThRaw   = values.TryGetValue(KeySlabThicknessRaw,  out var thr) && !string.IsNullOrEmpty(thr) ? thr : null;
-                        string vVol     = values.TryGetValue(KeyConcreteVolume,    out var vol) && !string.IsNullOrEmpty(vol) ? vol : null;
-                        string vVolRaw  = values.TryGetValue(KeyConcreteVolumeRaw, out var vr)  && !string.IsNullOrEmpty(vr)  ? vr  : null;
 
                         // Prevent-fix: dla każdej z 4 not skopiuj ogon paragrafu z GA do RC 1:1.
                         // Jeśli GA nie miało danej noty (tail==null) — RC pozostaje bez zmian.
