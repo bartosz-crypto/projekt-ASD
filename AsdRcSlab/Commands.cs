@@ -32,6 +32,13 @@ namespace AsdRcSlab
         private const string KeySlabThicknessRaw  = "thickness_raw";
         private const string KeyConcreteVolumeRaw = "volume_raw";
 
+        // Klucze dla "prevent-fix" — pełny ogon paragraphu z GA (po '=' do następnego \P).
+        // Używane przez ExtractParagraphTail/ApplyParagraphTail w GAI pipeline.
+        private const string KeySlabAreaTail        = "slab_area_tail";
+        private const string KeySlabPerimeterTail   = "slab_perimeter_tail";
+        private const string KeySlabThicknessTail   = "slab_thickness_tail";
+        private const string KeyConcreteVolumeTail  = "concrete_volume_tail";
+
         private static readonly string[] GaiFieldsToCopy = new[]
         {
             "CLIENT_1", "CLIENT_2", "CLIENT_3",
@@ -68,9 +75,10 @@ namespace AsdRcSlab
             @"(CONCRETE\s+VOLUME\s*=\s*)((?:[^\\]|\\[A-Za-z][^;\\]*;)*?)(\s*m(?:\\[A-Za-z][^;]*;|\s)*[³3]?(?:\\[A-Za-z][^;]*;|\s)*)[^\\]*?(?=\\P|\d+\.\s|\z)",
             RegexOptions.IgnoreCase);
 
-        // Podmienia HYSTOOLS DK90/DK165 (w tym samym MText co SLAB NOTES)
+        // Podmienia HYSTOOLS DK90/DK165 — toleruje RTF format codes wewnątrz "DKxx"
+        // G1 = "HYSTOOLS DK" + opcjonalne format codes; G2 = trailing format codes po liczbie
         private static readonly Regex HystoolsRx = new Regex(
-            @"HYSTOOLS\s+DK(?:90|165)",
+            @"(HYSTOOLS\s+DK(?:\\[A-Za-z][^;]*;)*)(?:90|165)((?:\\[A-Za-z][^;]*;)*)",
             RegexOptions.IgnoreCase);
 
         // Slab replace: group 1 = "X = ", group 2 = old value (numeric or MText-formatted), group 3 = " m"/" mm"
@@ -1527,6 +1535,50 @@ namespace AsdRcSlab
             return "RC" + (layoutIdx0Based + 1).ToString("D3");
         }
 
+        /// <summary>
+        /// Wyciąga "ogon" paragrafu MText zawierającego marker — wszystko po pierwszym '='
+        /// do następnego \P lub końca contents. Używane do prevent-fix paragraph-copy z GA.
+        /// </summary>
+        /// <param name="contents">surowy mt.Contents (RTF z format codes)</param>
+        /// <param name="marker">nazwa noty case-insensitive (np. "SLAB THICKNESS")</param>
+        /// <returns>ogon stringa (z wiodącą spacją z GA) albo null jeśli brak marker/=</returns>
+        private static string ExtractParagraphTail(string contents, string marker)
+        {
+            if (string.IsNullOrEmpty(contents)) return null;
+            string[] paragraphs = contents.Split(new[] { @"\P" }, StringSplitOptions.None);
+            foreach (string p in paragraphs)
+            {
+                int markerIdx = p.IndexOf(marker, StringComparison.OrdinalIgnoreCase);
+                if (markerIdx < 0) continue;
+                int eqIdx = p.IndexOf('=', markerIdx);
+                if (eqIdx < 0) continue;
+                return p.Substring(eqIdx + 1);
+            }
+            return null;
+        }
+
+        /// <summary>
+        /// Zamienia ogon paragrafu MText (po pierwszym '=') na newTail dla każdego paragrafu
+        /// zawierającego marker. Zachowuje prefix paragrafu (numer noty, format codes, "= ").
+        /// </summary>
+        /// <returns>nowy contents jeśli był match, oryginalny contents jeśli brak match</returns>
+        private static string ApplyParagraphTail(string contents, string marker, string newTail)
+        {
+            if (string.IsNullOrEmpty(contents) || newTail == null) return contents;
+            string[] paragraphs = contents.Split(new[] { @"\P" }, StringSplitOptions.None);
+            bool changed = false;
+            for (int i = 0; i < paragraphs.Length; i++)
+            {
+                int markerIdx = paragraphs[i].IndexOf(marker, StringComparison.OrdinalIgnoreCase);
+                if (markerIdx < 0) continue;
+                int eqIdx = paragraphs[i].IndexOf('=', markerIdx);
+                if (eqIdx < 0) continue;
+                paragraphs[i] = paragraphs[i].Substring(0, eqIdx + 1) + newTail;
+                changed = true;
+            }
+            return changed ? string.Join(@"\P", paragraphs) : contents;
+        }
+
         private static Dictionary<string, string> ExtractSlabValuesFromDb(Database db, string layerName)
         {
             var result = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
@@ -1598,6 +1650,20 @@ namespace AsdRcSlab
                         if (dMatch.Success)
                             result[KeyConcreteDesignated] = dMatch.Value;
 
+                        // Prevent-fix: wyciągnij pełne ogony paragrafów GA (po '=' do następnego \P).
+                        // Pozwala 1:1 skopiować do RC zachowując dokładny format/jednostki z GA.
+                        string tailArea = ExtractParagraphTail(contents, "SLAB AREA");
+                        if (tailArea != null) result[KeySlabAreaTail] = tailArea;
+
+                        string tailPer = ExtractParagraphTail(contents, "SLAB PERIMETER");
+                        if (tailPer != null) result[KeySlabPerimeterTail] = tailPer;
+
+                        string tailTh = ExtractParagraphTail(contents, "SLAB THICKNESS");
+                        if (tailTh != null) result[KeySlabThicknessTail] = tailTh;
+
+                        string tailVol = ExtractParagraphTail(contents, "CONCRETE VOLUME");
+                        if (tailVol != null) result[KeyConcreteVolumeTail] = tailVol;
+
                         tr.Commit();
                         return result;
                     }
@@ -1646,54 +1712,19 @@ namespace AsdRcSlab
                         string vVol     = values.TryGetValue(KeyConcreteVolume,    out var vol) && !string.IsNullOrEmpty(vol) ? vol : null;
                         string vVolRaw  = values.TryGetValue(KeyConcreteVolumeRaw, out var vr)  && !string.IsNullOrEmpty(vr)  ? vr  : null;
 
-                        if (vArea != null)
-                        {
-                            string before = newContents;
-                            newContents = SlabAreaReplaceRx.Replace(newContents, "${1}" + vArea + "${3}");
-                            if (newContents == before)
-                                newContents = SlabAreaUniversalRx.Replace(newContents, "${1}" + vArea + " m");
-                        }
-                        else if (vAreaRaw != null)
-                            newContents = SlabAreaRawReplaceRx.Replace(newContents, "${1}" + vAreaRaw);
-                        else
-                            newContents = SlabAreaReplaceRx.Replace(newContents, "${1}");
+                        // Prevent-fix: dla każdej z 4 not skopiuj ogon paragrafu z GA do RC 1:1.
+                        // Jeśli GA nie miało danej noty (tail==null) — RC pozostaje bez zmian.
+                        if (values.TryGetValue(KeySlabAreaTail, out var tArea) && !string.IsNullOrEmpty(tArea))
+                            newContents = ApplyParagraphTail(newContents, "SLAB AREA", tArea);
 
-                        if (vPer != null)
-                        {
-                            string before = newContents;
-                            newContents = SlabPerimeterReplaceRx.Replace(newContents, "${1}" + vPer + "${3}");
-                            if (newContents == before)
-                                newContents = SlabPerimeterUniversalRx.Replace(newContents, "${1}" + vPer + " m");
-                        }
-                        else if (vPerRaw != null)
-                            newContents = SlabPerimeterRawReplaceRx.Replace(newContents, "${1}" + vPerRaw);
-                        else
-                            newContents = SlabPerimeterReplaceRx.Replace(newContents, "${1}");
+                        if (values.TryGetValue(KeySlabPerimeterTail, out var tPer) && !string.IsNullOrEmpty(tPer))
+                            newContents = ApplyParagraphTail(newContents, "SLAB PERIMETER", tPer);
 
-                        if (vTh != null)
-                        {
-                            string before = newContents;
-                            newContents = SlabThicknessReplaceRx.Replace(newContents, "${1}" + vTh + "${3}");
-                            if (newContents == before)
-                                newContents = SlabThicknessUniversalRx.Replace(newContents, "${1}" + vTh + " mm");
-                        }
-                        else if (vThRaw != null)
-                            newContents = SlabThicknessRawReplaceRx.Replace(newContents, "${1}" + vThRaw);
-                        else
-                            newContents = SlabThicknessReplaceRx.Replace(newContents, "${1}");
+                        if (values.TryGetValue(KeySlabThicknessTail, out var tTh) && !string.IsNullOrEmpty(tTh))
+                            newContents = ApplyParagraphTail(newContents, "SLAB THICKNESS", tTh);
 
-                        // CONCRETE VOLUME — podmień tylko liczbę; m³ codes z RC zachowane, tail wycinany
-                        if (vVol != null)
-                        {
-                            string before = newContents;
-                            newContents = ConcreteVolumeReplaceRx.Replace(newContents, m => m.Groups[1].Value + vVol + m.Groups[3].Value);
-                            if (newContents == before)
-                                newContents = ConcreteVolumeUniversalRx.Replace(newContents, "${1}" + vVol + " m³");
-                        }
-                        else if (vVolRaw != null)
-                            newContents = ConcreteVolumeRawReplaceRx.Replace(newContents, "${1}" + vVolRaw);
-                        else
-                            newContents = ConcreteVolumeReplaceRx.Replace(newContents, m => m.Groups[1].Value + m.Groups[3].Value);
+                        if (values.TryGetValue(KeyConcreteVolumeTail, out var tVol) && !string.IsNullOrEmpty(tVol))
+                            newContents = ApplyParagraphTail(newContents, "CONCRETE VOLUME", tVol);
 
                         // CONCRETE TO BE DESIGNATED block — substring-based (unika interpretacji $ w gaBlock)
                         if (values.TryGetValue(KeyConcreteDesignated, out var gaBlock) && !string.IsNullOrEmpty(gaBlock))
@@ -1708,14 +1739,16 @@ namespace AsdRcSlab
                         }
 
                         // HYSTOOLS — podmień DK wariant wg thickness (225→DK90, 300→DK165)
+                        // 225 mm -> DK90, 300 mm -> DK165, inne grubości -> no-op (zachowaj template default).
+                        // Zachowuje format codes wokół liczby (capture groups 1 i 2).
                         if (values.TryGetValue(KeySlabThickness, out var thStr) &&
                             int.TryParse(thStr, out int thMm))
                         {
-                            string targetDk = thMm == 225 ? "DK90"
-                                           : thMm == 300 ? "DK165"
-                                           : null;
-                            if (targetDk != null)
-                                newContents = HystoolsRx.Replace(newContents, "HYSTOOLS " + targetDk);
+                            string targetDkNum = thMm == 225 ? "90"
+                                              : thMm == 300 ? "165"
+                                              : null;
+                            if (targetDkNum != null)
+                                newContents = HystoolsRx.Replace(newContents, "${1}" + targetDkNum + "${2}");
                         }
 
                         if (!string.Equals(newContents, contents, StringComparison.Ordinal))
