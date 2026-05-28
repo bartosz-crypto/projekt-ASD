@@ -1116,20 +1116,34 @@ namespace AsdRcSlab
         {
             var vpExtents = new List<(double xMin, double yMin, double xMax, double yMax)>();
             var btr = (BlockTableRecord)tr.GetObject(layout.BlockTableRecordId, OpenMode.ForRead);
-            int vpIdx = 0;
             foreach (ObjectId id in btr)
             {
                 var vp = tr.GetObject(id, OpenMode.ForRead) as Viewport;
                 if (vp == null) continue;
-                vpIdx++;
-                if (vpIdx == 1) continue; // pierwszy VP = paperspace overview
+                // Number==1 to zawsze paper-space pseudo-viewport (overview);
+                // skip niezaleznie od pozycji w BTR (po reimporcie DXF kolejnosc
+                // moze byc inna - dlatego nie polegamy na liczniku iteracji).
+                if (vp.Number == 1) continue;
+                // Off viewports nie sa renderowane - nie wnoszą do widocznosci layoutu.
+                if (!vp.On) continue;
 
                 double cx = vp.ViewCenter.X + vp.ViewTarget.X;
                 double cy = vp.ViewCenter.Y + vp.ViewTarget.Y;
                 double vh = vp.ViewHeight;
                 double aspect = (vp.Height > 0) ? (vp.Width / vp.Height) : 1.0;
                 double vw = vh * aspect;
-                vpExtents.Add((cx - vw / 2, cy - vh / 2, cx + vw / 2, cy + vh / 2 + 0.15 * vh));
+
+                // Symetryczny padding 15% na wszystkie 4 strony - detail captions
+                // (np. "INTERNAL PILE CONDITION PH1 EXTRA BARS") sa zwykle obok lub
+                // pod detail viewportami w model space, czesto ledwie poza scisle
+                // obliczonym extent. Padding daje margines.
+                double pad = 0.15;
+                vpExtents.Add((
+                    cx - vw / 2 - vw * pad,
+                    cy - vh / 2 - vh * pad,
+                    cx + vw / 2 + vw * pad,
+                    cy + vh / 2 + vh * pad
+                ));
             }
             return vpExtents;
         }
