@@ -248,9 +248,16 @@ namespace AsdRcSlab
         private void Grid_CellEditEnding(object sender, DataGridCellEditEndingEventArgs e)
         {
             if (e.EditAction != DataGridEditAction.Commit) return;
+
+            // Brute-force: nullify+set ItemsSource wymusza pelny rebuild DataGrid.
+            // Items.Refresh() + INPC nie wystarczaly (DataTrigger Background nie
+            // odpalal sie wybiorczo - WPF style hierarchy quirk). Trade-off:
+            // tracimy biezaca selekcje po edycji - akceptowalne.
             Dispatcher.BeginInvoke(new Action(() =>
             {
-                Grid.Items.Refresh();
+                var src = Grid.ItemsSource;
+                Grid.ItemsSource = null;
+                Grid.ItemsSource = src;
                 UpdateStats();
             }), DispatcherPriority.Background);
         }
