@@ -1565,6 +1565,15 @@ namespace AsdRcSlab
         /// zawierającego marker. Zachowuje prefix paragrafu (numer noty, format codes, "= ").
         /// </summary>
         /// <returns>nowy contents jeśli był match, oryginalny contents jeśli brak match</returns>
+        // Zamienia kolor w MText font codes \f<font>|b<n>|i<n>|c<num>|p<n>;
+        // na c7 (white ACI). Ten "font block override" ma wyzszy priorytet niz \C<n>;
+        // Zachowuje font name + bold + italic + pitch, zmienia tylko czesc koloru.
+        private static string ForceWhiteInFontCodes(string text)
+        {
+            if (string.IsNullOrEmpty(text)) return text;
+            return Regex.Replace(text, @"(\\f[^|;]+\|b\d+\|i\d+\|c)\d+(\|p\d+;)", "${1}7${2}");
+        }
+
         private static string ApplyParagraphTail(string contents, string marker, string newTail)
         {
             if (string.IsNullOrEmpty(contents) || newTail == null) return contents;
@@ -1585,7 +1594,11 @@ namespace AsdRcSlab
                 if (eqIdx < 0) continue;
                 // \C7; również NA POCZĄTKU paragrafu (przed \pi...;) — wymusza WHITE od pierwszego znaku,
                 // fix dla paragrafu SLAB PERIMETER który dziedziczył żółty z paragrafu poprzedniego.
-                paragraphs[i] = @"\C7;" + paragraphs[i].Substring(0, eqIdx + 1) + tailWithColor;
+                // Wymus c7 w \f<font>|c<n>; codes w prefiksie i ogonie GA.
+                // Bez tego \fROMANS|c238|p0; z RC template nadpisuje \C7;.
+                string prefix   = ForceWhiteInFontCodes(paragraphs[i].Substring(0, eqIdx + 1));
+                string tailFinal = ForceWhiteInFontCodes(tailWithColor);
+                paragraphs[i] = @"\C7;" + prefix + tailFinal;
                 changed = true;
             }
             return changed ? string.Join(@"\P", paragraphs) : contents;
@@ -1704,6 +1717,9 @@ namespace AsdRcSlab
                         // CONCRETE TO BE DESIGNATED block — substring-based (unika interpretacji $ w gaBlock)
                         if (values.TryGetValue(KeyConcreteDesignated, out var gaBlock) && !string.IsNullOrEmpty(gaBlock))
                         {
+                            // Wymus white w \f<font>|c<n>; codes (RH149 GA ma \fROMANS|c238|p0; w bloku).
+                            gaBlock = ForceWhiteInFontCodes(gaBlock);
+
                             var rcMatch = ConcreteDesignatedBlockRx.Match(newContents);
                             if (rcMatch.Success)
                             {
