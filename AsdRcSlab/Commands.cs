@@ -1580,7 +1580,9 @@ namespace AsdRcSlab
                 if (markerIdx < 0) continue;
                 int eqIdx = paragraphs[i].IndexOf('=', markerIdx);
                 if (eqIdx < 0) continue;
-                paragraphs[i] = paragraphs[i].Substring(0, eqIdx + 1) + tailWithColor;
+                // \C7; również NA POCZĄTKU paragrafu (przed \pi...;) — wymusza WHITE od pierwszego znaku,
+                // fix dla paragrafu SLAB PERIMETER który dziedziczył żółty z paragrafu poprzedniego.
+                paragraphs[i] = @"\C7;" + paragraphs[i].Substring(0, eqIdx + 1) + tailWithColor;
                 changed = true;
             }
             return changed ? string.Join(@"\P", paragraphs) : contents;
