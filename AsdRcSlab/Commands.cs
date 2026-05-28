@@ -81,7 +81,7 @@ namespace AsdRcSlab
             RegexOptions.IgnoreCase);
 
         private static readonly Regex PhRx = new Regex(
-            @"\bPH[1-9](-RE)?\b",
+            @"\bPH\s*[1-9]\b",
             RegexOptions.IgnoreCase);
 
         private static readonly Regex DetailRx = new Regex(
