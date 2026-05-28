@@ -8,6 +8,8 @@ using System.IO;
 using System.Linq;
 using System.Runtime.CompilerServices;
 using System.Windows;
+using System.Windows.Controls;
+using System.Windows.Threading;
 
 namespace AsdRcSlab
 {
@@ -241,6 +243,16 @@ namespace AsdRcSlab
                 MessageBox.Show($"Export error: {ex.Message}", "Error",
                     MessageBoxButton.OK, MessageBoxImage.Error);
             }
+        }
+
+        private void Grid_CellEditEnding(object sender, DataGridCellEditEndingEventArgs e)
+        {
+            if (e.EditAction != DataGridEditAction.Commit) return;
+            Dispatcher.BeginInvoke(new Action(() =>
+            {
+                Grid.Items.Refresh();
+                UpdateStats();
+            }), DispatcherPriority.Background);
         }
 
         private static Color GetPhColor(string ph)
