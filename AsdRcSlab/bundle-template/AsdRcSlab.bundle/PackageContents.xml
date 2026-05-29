@@ -1,0 +1,32 @@
+<?xml version="1.0" encoding="utf-8"?>
+<ApplicationPackage
+    SchemaVersion="1.0"
+    AutodeskProduct="AutoCAD"
+    ProductType="Application"
+    Name="AsdRcSlab"
+    Description="Speedeck RC slab tooling - automated drawing workflows"
+    AppVersion="1.0.0"
+    FriendlyVersion="2026.05"
+    ProductCode="{4E200B1C-B504-4C88-9275-B1253BD4F1F7}"
+    Author="Speedeck Foundations Ltd."
+    HelpFile=""
+    SupportedLocales="Enu"
+    AppNameSpace="appstore.exchange.autodesk.com">
+
+  <CompanyDetails Name="Speedeck Foundations Ltd."/>
+
+  <Components Description="AsdRcSlab plugin">
+    <RuntimeRequirements
+        OS="Win64"
+        Platform="AutoCAD*"
+        SeriesMin="R20.0"
+        SeriesMax="R25.0"/>
+
+    <ComponentEntry
+        AppName="AsdRcSlab"
+        ModuleName="./Contents/AsdRcSlab.dll"
+        AppDescription="AsdRcSlab plugin commands and ribbon"
+        LoadOnAutoCADStartup="True"
+        LoadReasons="LoadOnAppearance: True; LoadOnAutoCadStartup: True"/>
+  </Components>
+</ApplicationPackage>
