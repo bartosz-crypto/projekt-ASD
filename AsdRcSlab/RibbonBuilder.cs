@@ -8,18 +8,28 @@ namespace AsdRcSlab
     {
         public static void Build()
         {
+            App.DiagLog("[Build] START");
             RibbonControl ribbon = ComponentManager.Ribbon;
-            if (ribbon == null) return;
+            if (ribbon == null)
+            {
+                App.DiagLog("[Build] ribbon NULL - return");
+                return;
+            }
+
+            App.DiagLog($"[Build] ribbon ready, existing tabs count = {ribbon.Tabs.Count}");
 
             // Usun istniejaca zakladke jesli juz istnieje
+            bool existsBefore = false;
             foreach (RibbonTab existing in ribbon.Tabs)
             {
                 if (existing.Id == "ASD_RC_SLAB_TAB")
                 {
+                    existsBefore = true;
                     ribbon.Tabs.Remove(existing);
                     break;
                 }
             }
+            App.DiagLog($"[Build] tab with same Id already present = {existsBefore} (removed if true)");
 
             RibbonTab tab = new RibbonTab
             {
@@ -59,8 +69,10 @@ namespace AsdRcSlab
                      + "skip C/D columns). Creates .bak backup before write.")
                 }, columnsPerRow: 1));
 
+            App.DiagLog($"[Build] about to add tab, tab.Id = {tab.Id}, tab.Title = {tab.Title}, panels = {tab.Panels.Count}");
             ribbon.Tabs.Add(tab);
             tab.IsActive = true;
+            App.DiagLog($"[Build] tab added, new tabs count = {ribbon.Tabs.Count}, IsActive = {tab.IsActive}, DONE");
         }
 
         private static RibbonPanel CreatePanel(

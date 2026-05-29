@@ -6,7 +6,7 @@
     Name="AsdRcSlab"
     Description="Speedeck RC slab tooling - automated drawing workflows"
     AppVersion="1.0.0"
-    FriendlyVersion="2026.05"
+    FriendlyVersion="2026.05-diag"
     ProductCode="{4E200B1C-B504-4C88-9275-B1253BD4F1F7}"
     Author="Speedeck Foundations Ltd."
     HelpFile=""
