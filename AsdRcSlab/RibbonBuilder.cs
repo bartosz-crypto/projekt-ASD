@@ -96,6 +96,60 @@ namespace AsdRcSlab
             {
                 App.DiagLog($"[Build] refresh EXCEPTION: {ex.GetType().Name}: {ex.Message}");
             }
+
+            // === p125 DIAG: workspace info ===
+            try
+            {
+                // Aktualny workspace name
+                object wsName = null;
+                try { wsName = Autodesk.AutoCAD.ApplicationServices.Application
+                    .GetSystemVariable("WSCURRENT"); } catch { }
+                App.DiagLog($"[Build] WSCURRENT = {wsName}");
+
+                // Ile tabow widzi ComponentManager
+                App.DiagLog($"[Build] ComponentManager.Ribbon.Tabs.Count = {ComponentManager.Ribbon.Tabs.Count}");
+
+                // Czy nasz tab jest w kolekcji (potwierdzenie)
+                bool found = false;
+                foreach (Autodesk.Windows.RibbonTab t in ComponentManager.Ribbon.Tabs)
+                    if (t.Id == "ASD_RC_SLAB_TAB") { found = true; break; }
+                App.DiagLog($"[Build] nasz tab w kolekcji = {found}");
+            }
+            catch (System.Exception ex)
+            {
+                App.DiagLog($"[Build] workspace DIAG EXCEPTION: {ex.Message}");
+            }
+
+            // === p125 Podejście A: reload current workspace ===
+            // ASD 2015 renderuje ribbon z workspace - przeladowanie biezacego
+            // workspace wymusza przebudowe ribbon z aktualnej kolekcji
+            // ComponentManager (wlacznie z naszym tab).
+            try
+            {
+                var wsName = Autodesk.AutoCAD.ApplicationServices.Application
+                    .GetSystemVariable("WSCURRENT") as string;
+                if (!string.IsNullOrEmpty(wsName))
+                {
+                    var doc = Autodesk.AutoCAD.ApplicationServices.Application
+                        .DocumentManager.MdiActiveDocument;
+                    if (doc != null)
+                    {
+                        // Reaktywacja workspace przez komende WSCURRENT.
+                        // Escaping cudzyslowow dla nazw z spacjami.
+                        string cmd = $"_.WSCURRENT \"{wsName}\"\n";
+                        doc.SendStringToExecute(cmd, true, false, false);
+                        App.DiagLog($"[Build] WSCURRENT reload wyslany dla '{wsName}'");
+                    }
+                    else
+                    {
+                        App.DiagLog("[Build] brak active document - nie mozna reload workspace");
+                    }
+                }
+            }
+            catch (System.Exception ex)
+            {
+                App.DiagLog($"[Build] workspace reload EXCEPTION: {ex.Message}");
+            }
         }
 
         private static RibbonPanel CreatePanel(
