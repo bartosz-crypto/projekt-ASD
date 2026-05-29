@@ -42,7 +42,8 @@ namespace AsdRcSlab
                 if (ribbon != null)
                 {
                     DiagLog("Initialize: building ribbon synchronously");
-                    RibbonBuilder.Build();
+                    RibbonBuilder.Build();          // stara metoda (zostaje do porownania)
+                    CuixBuilder.BuildAndLoad();     // nowa metoda - CUIx + workspace
                     DiagLog("Initialize: synchronous Build() DONE");
                     return;
                 }
@@ -76,7 +77,8 @@ namespace AsdRcSlab
             try
             {
                 DiagLog("ItemInitialized: calling Build()");
-                RibbonBuilder.Build();
+                RibbonBuilder.Build();          // stara metoda (zostaje do porownania)
+                CuixBuilder.BuildAndLoad();     // nowa metoda - CUIx + workspace
                 DiagLog("ItemInitialized: Build() DONE");
             }
             catch (System.Exception ex)
@@ -101,7 +103,8 @@ namespace AsdRcSlab
             try
             {
                 DiagLog("Idle: calling Build()");
-                RibbonBuilder.Build();
+                RibbonBuilder.Build();          // stara metoda (zostaje do porownania)
+                CuixBuilder.BuildAndLoad();     // nowa metoda - CUIx + workspace
                 DiagLog("Idle: Build() DONE");
             }
             catch (System.Exception ex)

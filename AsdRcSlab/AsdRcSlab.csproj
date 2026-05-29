@@ -34,6 +34,10 @@
       <HintPath>C:\Program Files\Autodesk\AutoCAD 2015\AcWindows.dll</HintPath>
       <Private>False</Private>
     </Reference>
+    <Reference Include="AcCui">
+      <HintPath>C:\Program Files\Autodesk\AutoCAD 2015\AcCui.dll</HintPath>
+      <Private>False</Private>
+    </Reference>
     <Reference Include="PresentationFramework" />
     <Reference Include="PresentationCore" />
     <Reference Include="WindowsBase" />
