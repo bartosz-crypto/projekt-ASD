@@ -150,6 +150,67 @@ namespace AsdRcSlab
             {
                 App.DiagLog($"[Build] workspace reload EXCEPTION: {ex.Message}");
             }
+
+            // === p126b DIAG: sondowanie workspace API przez reflection ===
+            try
+            {
+                // 1. Czy istnieje CustomizationSection API?
+                var acMgdAsm = System.Reflection.Assembly.GetAssembly(
+                    typeof(Autodesk.AutoCAD.ApplicationServices.Application));
+                App.DiagLog($"[API] AcMgd assembly: {acMgdAsm?.GetName().Version}");
+
+                // 2. Szukaj typow zwiazanych z workspace/customization
+                var allAsms = System.AppDomain.CurrentDomain.GetAssemblies();
+                foreach (var asm in allAsms)
+                {
+                    var name = asm.GetName().Name;
+                    if (name == "AcMgd" || name == "AcCoreMgd" || name == "AcCui" || name == "AcWindows")
+                    {
+                        App.DiagLog($"[API] Assembly loaded: {name} v{asm.GetName().Version}");
+                        try
+                        {
+                            foreach (var t in asm.GetExportedTypes())
+                            {
+                                var tn = t.FullName ?? "";
+                                if (tn.Contains("Workspace") || tn.Contains("Customization") ||
+                                    tn.Contains("Cui") || tn.Contains("Ribbon"))
+                                {
+                                    App.DiagLog($"[API]   type: {tn}");
+                                }
+                            }
+                        }
+                        catch (System.Exception ex) { App.DiagLog($"[API]   GetExportedTypes err: {ex.Message}"); }
+                    }
+                }
+            }
+            catch (System.Exception ex)
+            {
+                App.DiagLog($"[API] DIAG EXCEPTION: {ex.Message}");
+            }
+
+            // === p126b DIAG: RibbonTab properties ===
+            try
+            {
+                var tabType = tab.GetType();
+                App.DiagLog($"[TAB] type: {tabType.FullName}");
+                foreach (var prop in tabType.GetProperties())
+                {
+                    var pn = prop.Name;
+                    // Loguj property zwiazane z identyfikacja / workspace / visibility
+                    if (pn.Contains("Id") || pn.Contains("Uid") || pn.Contains("Workspace") ||
+                        pn.Contains("Visible") || pn.Contains("Anonymous") || pn.Contains("Tag") ||
+                        pn.Contains("Name"))
+                    {
+                        object val = null;
+                        try { val = prop.GetValue(tab); } catch { }
+                        App.DiagLog($"[TAB]   {pn} = {val}");
+                    }
+                }
+            }
+            catch (System.Exception ex)
+            {
+                App.DiagLog($"[TAB] DIAG EXCEPTION: {ex.Message}");
+            }
         }
 
         private static RibbonPanel CreatePanel(
