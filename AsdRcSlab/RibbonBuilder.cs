@@ -73,6 +73,29 @@ namespace AsdRcSlab
             ribbon.Tabs.Add(tab);
             tab.IsActive = true;
             App.DiagLog($"[Build] tab added, new tabs count = {ribbon.Tabs.Count}, IsActive = {tab.IsActive}, DONE");
+
+            // === p124: wymuszenie refresh ribbon UI ===
+            // ASD 2015 nie renderuje programowo dodanego tab bez wymuszenia odswiezenia.
+            try
+            {
+                // 1. UpdateLayout na ribbon control (WPF-level refresh)
+                var ribbonControl = ComponentManager.Ribbon;
+                if (ribbonControl != null)
+                {
+                    ribbonControl.UpdateLayout();
+                    App.DiagLog("[Build] ribbon.UpdateLayout() called");
+                }
+
+                // 2. Wymuszenie re-aktywacji tab zeby ribbon przerysowal
+                //    (czasem ustawienie IsActive na inny tab i z powrotem wymusza redraw)
+                tab.IsVisible = true;
+                tab.IsActive = true;
+                App.DiagLog("[Build] tab IsVisible+IsActive re-set");
+            }
+            catch (System.Exception ex)
+            {
+                App.DiagLog($"[Build] refresh EXCEPTION: {ex.GetType().Name}: {ex.Message}");
+            }
         }
 
         private static RibbonPanel CreatePanel(
