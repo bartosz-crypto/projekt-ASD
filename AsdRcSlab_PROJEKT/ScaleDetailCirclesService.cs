@@ -22,7 +22,8 @@ namespace AsdRcSlab
         public int Color;                       // efektywny ACI ramki
         public List<ObjectId> CircleIds = new List<ObjectId>();
         public int CircleCount;
-        public string NearestLabelText = "";
+        public string NearestLabelText = "";       // skrót "DETAIL 1:NN"
+        public string NearestLabelFull = "";        // pełny oczyszczony tekst etykiety
         public double NearestLabelDist;
         public bool Preselected;
     }
@@ -95,6 +96,9 @@ namespace AsdRcSlab
             t = t.Replace(@"\{", "{").Replace(@"\}", "}").Replace(@"\\", "\\");
             // Pozostałe nawiasy grupujące
             t = t.Replace("{", "").Replace("}", "");
+            // Zwiń wielokrotne białe znaki do pojedynczej spacji + Trim
+            // (np. zlepione akapity "DETAIL '1'3No.SCALE" stają się czytelne).
+            t = Regex.Replace(t, @"\s+", " ").Trim();
             return t;
         }
 
@@ -109,7 +113,7 @@ namespace AsdRcSlab
             var db = doc.Database;
 
             var circles = new List<(ObjectId Id, Point2d C, double R)>();
-            var labels = new List<(int Nn, Point2d P)>();
+            var labels = new List<(int Nn, Point2d P, string Full)>();
             var frames = new List<(ObjectId Id, Point2d[] Poly, Point2d Centroid,
                                    double W, double H, int Color)>();
 
@@ -195,11 +199,11 @@ namespace AsdRcSlab
 
                 // Najbliższa etykieta DETAIL-scale do centroidu ramki.
                 if (labels.Count == 0) continue;
-                int bestNn = -1; double bestDist = double.MaxValue;
+                int bestNn = -1; double bestDist = double.MaxValue; string bestFull = "";
                 foreach (var l in labels)
                 {
                     double d = (l.P - f.Centroid).Length;
-                    if (d < bestDist) { bestDist = d; bestNn = l.Nn; }
+                    if (d < bestDist) { bestDist = d; bestNn = l.Nn; bestFull = l.Full; }
                 }
                 if (bestNn != TargetDetailScale) continue;   // najbliższa etykieta != 1:25
 
@@ -214,6 +218,7 @@ namespace AsdRcSlab
                     CircleIds = inside,
                     CircleCount = inside.Count,
                     NearestLabelText = $"DETAIL 1:{bestNn}",
+                    NearestLabelFull = bestFull,
                     NearestLabelDist = bestDist,
                     Preselected = bestDist <= PreselectLabelDist
                 });
@@ -223,14 +228,15 @@ namespace AsdRcSlab
             return result;
         }
 
-        private static void TryAddLabel(string text, Point2d pos, List<(int, Point2d)> labels)
+        private static void TryAddLabel(string text, Point2d pos,
+                                        List<(int, Point2d, string)> labels)
         {
             if (string.IsNullOrEmpty(text)) return;
             if (text.IndexOf("DETAIL", StringComparison.OrdinalIgnoreCase) < 0) return;
             var m = ScaleRegex.Match(text);
             if (!m.Success) return;
             if (int.TryParse(m.Groups[1].Value, out int nn))
-                labels.Add((nn, pos));
+                labels.Add((nn, pos, text));   // text już oczyszczony przez StripMTextCodes
         }
 
         // ===================== Faza B — APLIKACJA (write) =====================

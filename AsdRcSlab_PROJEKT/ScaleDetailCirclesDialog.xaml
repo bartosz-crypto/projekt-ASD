@@ -43,7 +43,15 @@
                         </DataTemplate>
                     </DataGridTemplateColumn.CellTemplate>
                 </DataGridTemplateColumn>
-                <DataGridTextColumn Header="Detail"  Binding="{Binding Detail}"  Width="*"  IsReadOnly="True"/>
+                <DataGridTextColumn Header="Detail" Binding="{Binding Detail}"
+                                    Width="*" MinWidth="180" IsReadOnly="True">
+                    <DataGridTextColumn.ElementStyle>
+                        <Style TargetType="TextBlock">
+                            <Setter Property="TextTrimming" Value="CharacterEllipsis"/>
+                            <Setter Property="ToolTip" Value="{Binding Detail}"/>
+                        </Style>
+                    </DataGridTextColumn.ElementStyle>
+                </DataGridTextColumn>
                 <DataGridTextColumn Header="Scale"   Binding="{Binding Scale}"   Width="60" IsReadOnly="True"/>
                 <DataGridTextColumn Header="Circles" Binding="{Binding Circles}" Width="70" IsReadOnly="True"/>
                 <DataGridTextColumn Header="Center"  Binding="{Binding Center}"  Width="140" IsReadOnly="True"/>

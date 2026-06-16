@@ -36,7 +36,9 @@ namespace AsdRcSlab
                 .Select(c => new ScaleDetailRow
                 {
                     Selected = c.Preselected,
-                    Detail = c.NearestLabelText,
+                    Detail = string.IsNullOrWhiteSpace(c.NearestLabelFull)
+                        ? c.NearestLabelText
+                        : c.NearestLabelFull,
                     Scale = "1:25",
                     Circles = c.CircleCount,
                     Center = $"({c.CenterX:F0}, {c.CenterY:F0})",
