@@ -28,6 +28,7 @@ namespace AsdRcSlab
             ("BBS",                "BBS Write",       "ASD-BBS-WRITE"),
             ("TOOLS",              "Explode ASD",     "ASD-XAS"),
             ("TOOLS",              "Scale Detail Circles", "ASD-SDC"),
+            ("TOOLS",              "Purge / Cleanup",  "ASD-PRG"),
             ("NA ENGINEERING",     "NA Engineering sp. z o.o.", "ASD-ABOUT"),
         };
 

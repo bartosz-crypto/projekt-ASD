@@ -2608,5 +2608,72 @@ namespace AsdRcSlab
                     System.Windows.MessageBoxImage.Error);
             }
         }
+
+        // === p133: ASD-PRG — Purge / Cleanup ===
+        // Usuwa nieużywane obiekty nazwane + geometrię zerową + pusty tekst.
+        // Najpierw dry-run + podsumowanie Yes/No, dopiero po Yes faktyczny purge.
+        [CommandMethod("ASD-PRG")]
+        public void CmdPurgeCleanup()
+        {
+            var doc = AcApp.DocumentManager.MdiActiveDocument;
+            if (doc == null) return;
+            var ed = doc.Editor;
+
+            try
+            {
+                var svc = new PurgeCleanupService();
+
+                // Dry-run (Abort) — dokładne liczby.
+                var dry = svc.Run(doc, commit: false);
+                if (dry.Total == 0)
+                {
+                    ed.WriteMessage("\nPRG: Nothing to purge — drawing is clean.\n");
+                    System.Windows.MessageBox.Show(
+                        "Nothing to purge — drawing is clean.",
+                        "Purge / Cleanup",
+                        System.Windows.MessageBoxButton.OK,
+                        System.Windows.MessageBoxImage.Information);
+                    return;
+                }
+
+                string summary =
+                    "Purge / Cleanup will remove:\n\n" +
+                    dry.BuildSummary() + "\n\n" +
+                    $"  TOTAL: {dry.Total}\n\nProceed?";
+
+                var ans = System.Windows.MessageBox.Show(summary,
+                    "Purge / Cleanup",
+                    System.Windows.MessageBoxButton.YesNo,
+                    System.Windows.MessageBoxImage.Warning);
+                if (ans != System.Windows.MessageBoxResult.Yes)
+                {
+                    ed.WriteMessage("\nPRG: cancelled.\n");
+                    return;
+                }
+
+                // Apply (Commit) — rzeczywiste usunięcie.
+                var rep = svc.Run(doc, commit: true);
+
+                ed.WriteMessage($"\nPRG: removed total={rep.Total} " +
+                    $"[{string.Join(", ", PurgeReport.Order.Where(c => rep.Counts.TryGetValue(c, out var n) && n > 0).Select(c => $"{c}={rep.Counts[c]}"))}]\n");
+
+                System.Windows.MessageBox.Show(
+                    "Purge / Cleanup done. Removed:\n\n" +
+                    rep.BuildSummary() + "\n\n" +
+                    $"  TOTAL: {rep.Total}\n\n" +
+                    @"Diag log: %TEMP%\AsdRcSlab-purge-diag.log",
+                    "Purge / Cleanup",
+                    System.Windows.MessageBoxButton.OK,
+                    System.Windows.MessageBoxImage.Information);
+            }
+            catch (System.Exception ex)
+            {
+                ed.WriteMessage($"\nPRG error: {ex.Message}\n");
+                System.Windows.MessageBox.Show($"Purge error:\n{ex.Message}",
+                    "Purge / Cleanup",
+                    System.Windows.MessageBoxButton.OK,
+                    System.Windows.MessageBoxImage.Error);
+            }
+        }
     }
 }
