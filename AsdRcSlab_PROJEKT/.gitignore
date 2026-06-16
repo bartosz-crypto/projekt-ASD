@@ -1,0 +1,21 @@
+# Artefakty buildu (regenerowalne)
+bin/
+obj/
+dist/
+binBuild_verify/
+.vs/
+
+# Stage instalatora SFX: skopiowany bundle (regenerowalny z dist\)
+installer/sfx/AsdRcSlab.bundle/
+
+# Inne
+*.user
+*.suo
+*~
+Thumbs.db
+
+# Logi diagnostyczne
+*-ribbon-diag.log
+
+# NIE commituj kluczy podpisujacych
+*.pfx
