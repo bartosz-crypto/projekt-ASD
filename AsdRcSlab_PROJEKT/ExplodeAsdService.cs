@@ -20,6 +20,7 @@ namespace AsdRcSlab
         public int Skipped;                  // ile zwróciło 0 produktów (proxy/nierozbijalne)
         public int Created;                  // ile nowych prymitywów dodano
         public int LayersUnlocked;           // ile warstw odblokowano/odmrożono/włączono
+        public int CirclesRecolored;         // ile kółek "opis rozkładu_" przekolorowano na 18
 
         public List<string> NotExploded   = new List<string>();
         public List<string> UnlockedLayers = new List<string>();
@@ -40,6 +41,11 @@ namespace AsdRcSlab
     public class ExplodeAsdService
     {
         public const string AsdLayerPrefix = "AutoCAD_Structural_Detailing_";
+
+        // ASCII-bezpieczny prefiks warstwy "opis rozkładu_" (rozłączny z "opis kształtu
+        // pręta_" — "opis rozk" vs "opis ksz"). NIE wpisywać polskich znaków do literału.
+        private const string DistrDescLayerMatch = "AutoCAD_Structural_Detailing_opis rozk";
+        private const int DistrCircleColor = 18;   // ACI
 
         private static readonly string DiagLogPath =
             Path.Combine(
@@ -94,7 +100,8 @@ namespace AsdRcSlab
         /// <summary>
         /// Faza B — EXPLODE (write). Wszystko w jednej transakcji + blokada dokumentu.
         /// </summary>
-        public ExplodeReport ExplodeLayers(Document doc, IEnumerable<string> layers, bool recursive)
+        public ExplodeReport ExplodeLayers(Document doc, IEnumerable<string> layers,
+                                           bool recursive, bool recolorDistributionCircles)
         {
             var rep = new ExplodeReport();
             if (doc == null) return rep;
@@ -102,7 +109,8 @@ namespace AsdRcSlab
             var selected = new HashSet<string>(
                 layers ?? Enumerable.Empty<string>(), StringComparer.OrdinalIgnoreCase);
             rep.LayersProcessed = selected.Count;
-            Diag($"=== ExplodeLayers START === layers={selected.Count} recursive={recursive}");
+            Diag($"=== ExplodeLayers START === layers={selected.Count} recursive={recursive} " +
+                 $"recolorCircles={recolorDistributionCircles}");
 
             if (selected.Count == 0)
             {
@@ -161,13 +169,68 @@ namespace AsdRcSlab
                     if (ok) Inc(rep.PerLayerExploded, layer);
                 }
 
+                // 4. PO explode: przekoloruj kółka na warstwie "opis rozkładu_" na 18.
+                //    Kółka powstają dopiero z rozbicia obiektów RBCR, więc skanujemy
+                //    aktualny stan Model Space w tej samej transakcji zapisu.
+                if (recolorDistributionCircles)
+                    RecolorDistributionCircles(tr, ms, db, rep);
+
                 tr.Commit();
             }
 
             Diag($"=== DONE === found={rep.TopLevelFound} ok={rep.ExplodedOk} " +
                  $"failed={rep.Failed} skipped={rep.Skipped} created={rep.Created} " +
-                 $"unlocked={rep.LayersUnlocked}");
+                 $"unlocked={rep.LayersUnlocked} circlesRecolored={rep.CirclesRecolored}");
             return rep;
+        }
+
+        // Przekolorowuje encje okrągłe (CIRCLE oraz ELLIPSE z RadiusRatio≈1.0) na
+        // warstwie "opis rozkładu_" na ACI 18. Linie/hatche/teksty na tej warstwie
+        // pozostają bez zmian. Recolor nie dodaje/nie kasuje encji, więc iteracja
+        // po ObjectId Model Space jest bezpieczna.
+        private void RecolorDistributionCircles(Transaction tr, BlockTableRecord ms,
+                                                Database db, ExplodeReport rep)
+        {
+            // Upewnij się że warstwa docelowa jest odblokowana/odmrożona/włączona
+            // (mogła nie być wśród rozbijanych warstw).
+            var lt = (LayerTable)tr.GetObject(db.LayerTableId, OpenMode.ForRead);
+            foreach (ObjectId ltrId in lt)
+            {
+                var ltr = (LayerTableRecord)tr.GetObject(ltrId, OpenMode.ForRead);
+                if (!ltr.Name.StartsWith(DistrDescLayerMatch, StringComparison.OrdinalIgnoreCase))
+                    continue;
+                if (!(ltr.IsLocked || ltr.IsFrozen || ltr.IsOff)) continue;
+
+                ltr.UpgradeOpen();
+                var states = new List<string>();
+                if (ltr.IsLocked) { ltr.IsLocked = false; states.Add("unlock"); }
+                if (ltr.IsFrozen) { ltr.IsFrozen = false; states.Add("thaw"); }
+                if (ltr.IsOff)    { ltr.IsOff    = false; states.Add("on"); }
+                rep.LayersUnlocked++;
+                rep.UnlockedLayers.Add($"{ltr.Name} ({string.Join("+", states)})");
+                Diag($"[RECOLOR] layer adjusted: {ltr.Name} -> {string.Join("+", states)}");
+            }
+
+            foreach (ObjectId id in ms)
+            {
+                var ent = tr.GetObject(id, OpenMode.ForRead) as Entity;
+                if (ent == null) continue;
+                if (string.IsNullOrEmpty(ent.Layer) ||
+                    !ent.Layer.StartsWith(DistrDescLayerMatch, StringComparison.OrdinalIgnoreCase))
+                    continue;
+
+                bool isCircle = false;
+                if (ent is Circle) isCircle = true;
+                else if (ent is Ellipse el && Math.Abs(el.RadiusRatio - 1.0) < 0.01)
+                    isCircle = true;
+                if (!isCircle) continue;
+
+                ent.UpgradeOpen();
+                ent.ColorIndex = DistrCircleColor;   // ACI 18
+                rep.CirclesRecolored++;
+            }
+
+            Diag($"[RECOLOR] circles recolored to {DistrCircleColor}: {rep.CirclesRecolored}");
         }
 
         // Rozbija pojedynczą encję; rekursja TYLKO dla custom ASD (RBCR*/RBCT*).

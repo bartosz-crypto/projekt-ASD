@@ -60,6 +60,10 @@
                     Background="#ECEFF1" BorderThickness="1" BorderBrush="#B0BEC5"/>
             <CheckBox x:Name="ChkRecursive" Content="Explode recursively (RBCR/RBCT)"
                       IsChecked="True" VerticalAlignment="Center" FontSize="12"/>
+            <CheckBox x:Name="ChkRecolorCircles"
+                      Content="Recolor distribution circles to color 18"
+                      IsChecked="True" VerticalAlignment="Center" FontSize="12"
+                      Margin="16,0,0,0"/>
         </StackPanel>
 
         <!-- Przyciski -->

@@ -18,6 +18,7 @@ namespace AsdRcSlab
 
         public bool Confirmed { get; private set; }
         public bool Recursive { get; private set; } = true;
+        public bool RecolorDistributionCircles { get; private set; } = true;
         public List<string> SelectedLayers { get; private set; } = new List<string>();
 
         public ExplodeAsdDialog(List<(string Layer, int Count)> layers)
@@ -72,6 +73,7 @@ namespace AsdRcSlab
             }
 
             Recursive = ChkRecursive.IsChecked == true;
+            RecolorDistributionCircles = ChkRecolorCircles.IsChecked == true;
             Confirmed = true;
             Close();
         }

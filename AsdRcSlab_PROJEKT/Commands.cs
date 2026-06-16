@@ -2480,13 +2480,15 @@ namespace AsdRcSlab
                 }
 
                 // Faza B — explode (write, LockDocument + transakcja w serwisie).
-                var rep = svc.ExplodeLayers(doc, dlg.SelectedLayers, dlg.Recursive);
+                var rep = svc.ExplodeLayers(doc, dlg.SelectedLayers, dlg.Recursive,
+                                            dlg.RecolorDistributionCircles);
 
                 // Faza C — raport.
                 ed.WriteMessage(
                     $"\nXAS: layers={rep.LayersProcessed} found(top-level)={rep.TopLevelFound} " +
                     $"exploded={rep.ExplodedOk} new-primitives={rep.Created} " +
-                    $"skipped={rep.Skipped} failed={rep.Failed} layers-adjusted={rep.LayersUnlocked}\n");
+                    $"skipped={rep.Skipped} failed={rep.Failed} layers-adjusted={rep.LayersUnlocked} " +
+                    $"circles-recolored={rep.CirclesRecolored}\n");
 
                 var sb = new System.Text.StringBuilder();
                 sb.AppendLine("Explode complete.");
@@ -2498,6 +2500,7 @@ namespace AsdRcSlab
                 sb.AppendLine($"Skipped (proxy/empty): {rep.Skipped}");
                 sb.AppendLine($"Failed:                {rep.Failed}");
                 sb.AppendLine($"Layers adjusted:       {rep.LayersUnlocked}");
+                sb.AppendLine($"Distribution circles recolored to 18: {rep.CirclesRecolored}");
 
                 if (rep.UnlockedLayers.Count > 0)
                 {
