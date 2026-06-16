@@ -22,7 +22,7 @@ namespace AsdRcSlab
             ("PH CONDITIONS",      "Load Punching",   "ASD-PXIE"),
             ("PH CONDITIONS",      "Assign PH",       "ASD-PAA"),
             ("PH CONDITIONS",      "PH Report",       "ASD-PHR"),
-            ("PH CONDITIONS",      "Waliduj PH",      "ASD-PHV"),
+            ("PH CONDITIONS",      "Validate PH",     "ASD-PHV"),
             ("REINFORCEMENT MAPS", "Import Maps",     "ASD-IMR"),
             ("BBS",                "Bar Calculator",  "ASD-BBC"),
             ("BBS",                "BBS Write",       "ASD-BBS-WRITE"),

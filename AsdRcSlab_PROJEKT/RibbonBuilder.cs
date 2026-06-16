@@ -8,22 +8,10 @@ namespace AsdRcSlab
 {
     public static class RibbonBuilder
     {
-        // Mapowanie komenda -> plik ikony (w folderze Contents\Icons obok DLL).
-        // Aby zmienic ikone przycisku wystarczy podmienic nazwe pliku ponizej.
-        private static readonly System.Collections.Generic.Dictionary<string, string> IconMap =
-            new System.Collections.Generic.Dictionary<string, string>
-        {
-            { "ASD-GAI",       "Pino-Disney-Mickey-Mouse-1.32.png" },   // Copy from GA
-            { "ASD-RCN",       "Pino-Disney-Minnie-Mouse.32.png"   },   // Sheet Numbering
-            { "ASD-PXIE",      "SD-EditPile.32.png"                },   // Load Punching
-            { "ASD-PAA",       "SD-MarkPiles.32.png"               },   // Assign PH
-            { "ASD-PHR",       "SD-MasterLevels.32.png"            },   // PH Report
-            { "ASD-PHV",       "Iconfactory-Looney-Y.-Sam.32.png"  },   // Waliduj PH
-            { "ASD-IMR",       "Iconfactory-Looney-Roadrunner.32.png" },// Import Maps
-            { "ASD-BBC",       "Iconfactory-Looney-Taz.32.png"     },   // Bar Calculator
-            { "ASD-BBS-WRITE", "Iconfactory-Looney-Tweety.32.png"  },   // BBS Write
-            // ASD-ABOUT (NA Engineering) celowo bez ikony - sam tekst + link.
-        };
+        // Ikony generowane skryptem tools\gen-icons.ps1: plik nazywa sie
+        //   <komenda-malymi-literami>-<rozmiar>.png  (np. asd-xas-32.png)
+        // i lezy w folderze Icons\ obok DLL (build-bundle kopiuje icons\ tam).
+        // ASD-ABOUT (NA Engineering) celowo bez ikony - sam tekst + link.
 
         // Wersja dodatku + data builda (z czasu modyfikacji DLL = czas kompilacji).
         internal const string Version = "4.4";
@@ -45,11 +33,12 @@ namespace AsdRcSlab
                 System.IO.Path.GetDirectoryName(dll) ?? "", "Icons");
         }
 
-        // Pelna sciezka do pliku ikony dla danej komendy (null jesli brak mapowania/pliku).
-        internal static string IconPath(string cmd)
+        // Pelna sciezka do pliku ikony danej komendy w danym rozmiarze (null gdy brak).
+        private static string IconFilePath(string cmd, int size)
         {
-            if (cmd == null || !IconMap.TryGetValue(cmd, out var file)) return null;
-            var path = System.IO.Path.Combine(IconsDir(), file);
+            if (string.IsNullOrEmpty(cmd)) return null;
+            var name = cmd.ToLowerInvariant() + "-" + size + ".png";
+            var path = System.IO.Path.Combine(IconsDir(), name);
             if (!System.IO.File.Exists(path))
             {
                 App.DiagLog($"[Icon] missing: {path}");
@@ -58,10 +47,13 @@ namespace AsdRcSlab
             return path;
         }
 
+        // Sciezka do ikony 32px (uzywana przez CuixBuilder do osadzenia w CUIx).
+        internal static string IconPath(string cmd) => IconFilePath(cmd, 32);
+
         // Wczytuje PNG z dysku do zamrozonego ImageSource (bezpieczne miedzy watkami).
-        private static ImageSource LoadIcon(string cmd)
+        private static ImageSource LoadIcon(string cmd, int size)
         {
-            var path = IconPath(cmd);
+            var path = IconFilePath(cmd, size);
             if (path == null) return null;
             try
             {
@@ -122,7 +114,7 @@ namespace AsdRcSlab
                     ("Load Punching", "ASD-PXIE", "Import PUNCHING_NEW_TEMPLATE_v2.xlsx"),
                     ("Assign PH",     "ASD-PAA",  "Assigns PH1-PH9 and generates detail titles"),
                     ("PH Report",        "ASD-PHR",  "Generuje PH_Report.xlsx"),
-                    ("Waliduj PH",       "ASD-PHV",  "Sprawdza R77, R79, duplikaty")
+                    ("Validate PH",      "ASD-PHV",  "Sprawdza R77, R79, duplikaty")
                 }, columnsPerRow: 2));
 
             tab.Panels.Add(CreatePanel("REINFORCEMENT MAPS",
@@ -347,19 +339,20 @@ namespace AsdRcSlab
             for (int i = 0; i < buttons.Length; i++)
             {
                 var (label, cmd, tooltip) = buttons[i];
-                var icon = LoadIcon(cmd);
+                var icon16 = LoadIcon(cmd, 16);
+                var icon32 = LoadIcon(cmd, 32);
+                bool hasIcon = icon32 != null || icon16 != null;
                 RibbonButton btn = new RibbonButton
                 {
                     Text = label,
                     CommandHandler = new RibbonCommandHandler(cmd),
                     CommandParameter = cmd,
                     ShowText = true,
-                    ShowImage = icon != null,
-                    Image = icon,        // slot 16x16
-                    LargeImage = icon,   // slot 32x32 (gdyby panel przeszedl w tryb Large)
-                    Size = RibbonItemSize.Standard,
-                    Width = 150,
-                    MinWidth = 150,
+                    ShowImage = hasIcon,
+                    Image = icon16,        // slot 16x16
+                    LargeImage = icon32,   // slot 32x32
+                    Size = hasIcon ? RibbonItemSize.Large : RibbonItemSize.Standard,
+                    Orientation = System.Windows.Controls.Orientation.Vertical,
                     ToolTip = tooltip
                 };
                 row.Items.Add(btn);
