@@ -2533,5 +2533,80 @@ namespace AsdRcSlab
                     System.Windows.MessageBoxImage.Error);
             }
         }
+
+        // === p131: ASD-SDC — Scale Detail Circles (1:25) ===
+        // Wykrywa ramki detali 1:25 z kółkami rozkładu, pokazuje podgląd z
+        // checkboxami, po zatwierdzeniu skaluje zaznaczone kółka ×0.5.
+        [CommandMethod("ASD-SDC")]
+        public void CmdScaleDetailCircles()
+        {
+            var doc = AcApp.DocumentManager.MdiActiveDocument;
+            if (doc == null) return;
+            var ed = doc.Editor;
+
+            try
+            {
+                var svc = new ScaleDetailCirclesService();
+
+                // Faza A — skan (read-only).
+                var candidates = svc.ScanCandidates(doc);
+                if (candidates.Count == 0)
+                {
+                    ed.WriteMessage("\nSDC: No 1:25 detail frames with distribution circles found.\n");
+                    System.Windows.MessageBox.Show(
+                        "No 1:25 detail frames with scalable distribution circles found.\n\n" +
+                        "Looked for closed dashed frames (color 1/10) containing CIRCLEs " +
+                        "(layer 'rozkład pręta_', R >= 25) near a 'SCALE 1:25' label.",
+                        "Scale Detail Circles",
+                        System.Windows.MessageBoxButton.OK,
+                        System.Windows.MessageBoxImage.Information);
+                    return;
+                }
+
+                var dlg = new ScaleDetailCirclesDialog(candidates);
+                AcApp.ShowModalWindow(AcApp.MainWindow.Handle, dlg, false);
+                if (!dlg.Confirmed)
+                {
+                    ed.WriteMessage("\nSDC: cancelled.\n");
+                    return;
+                }
+
+                // Faza B — skalowanie (write, LockDocument + transakcja w serwisie).
+                var rep = svc.ApplyScaling(doc, dlg.SelectedCandidates);
+
+                ed.WriteMessage(
+                    $"\nSDC: frames-approved={rep.FramesApproved} circles-scaled={rep.CirclesScaled} " +
+                    $"skipped(R<25)={rep.CirclesSkipped} layers-adjusted={rep.LayersUnlocked}\n");
+
+                var sb = new System.Text.StringBuilder();
+                sb.AppendLine("Scaling complete.");
+                sb.AppendLine();
+                sb.AppendLine($"Frames approved:       {rep.FramesApproved}");
+                sb.AppendLine($"Circles scaled (×0.5): {rep.CirclesScaled}");
+                sb.AppendLine($"Skipped (R < 25):      {rep.CirclesSkipped}");
+                sb.AppendLine($"Layers adjusted:       {rep.LayersUnlocked}");
+                if (rep.UnlockedLayers.Count > 0)
+                {
+                    sb.AppendLine();
+                    sb.AppendLine("Adjusted layers (unlock/thaw/on):");
+                    foreach (var l in rep.UnlockedLayers) sb.AppendLine("  - " + l);
+                }
+                sb.AppendLine();
+                sb.AppendLine(@"Diag log: %TEMP%\AsdRcSlab-scaledetail-diag.log");
+
+                System.Windows.MessageBox.Show(sb.ToString(),
+                    "Scale Detail Circles",
+                    System.Windows.MessageBoxButton.OK,
+                    System.Windows.MessageBoxImage.Information);
+            }
+            catch (System.Exception ex)
+            {
+                ed.WriteMessage($"\nSDC error: {ex.Message}\n");
+                System.Windows.MessageBox.Show($"Scale error:\n{ex.Message}",
+                    "Scale Detail Circles",
+                    System.Windows.MessageBoxButton.OK,
+                    System.Windows.MessageBoxImage.Error);
+            }
+        }
     }
 }

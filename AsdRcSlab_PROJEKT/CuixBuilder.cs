@@ -27,6 +27,7 @@ namespace AsdRcSlab
             ("BBS",                "Bar Calculator",  "ASD-BBC"),
             ("BBS",                "BBS Write",       "ASD-BBS-WRITE"),
             ("TOOLS",              "Explode ASD",     "ASD-XAS"),
+            ("TOOLS",              "Scale Detail Circles", "ASD-SDC"),
             ("NA ENGINEERING",     "NA Engineering sp. z o.o.", "ASD-ABOUT"),
         };
 

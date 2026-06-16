@@ -143,13 +143,17 @@ namespace AsdRcSlab
                      + "skip C/D columns). Creates .bak backup before write.")
                 }, columnsPerRow: 1));
 
-            // p128: panel narzedzi - Explode ASD (tekstowo, bez ikony).
+            // p128/p131: panel narzedzi (tekstowo, bez ikon).
             tab.Panels.Add(CreatePanel("TOOLS",
                 new[] {
                     ("Explode ASD", "ASD-XAS",
                      "Explode AutoCAD Structural Detailing objects "
                      + "(layers 'AutoCAD_Structural_Detailing_*') into plain geometry. "
-                     + "Whole model space; originals deleted.")
+                     + "Whole model space; originals deleted."),
+                    ("Scale Detail Circles", "ASD-SDC",
+                     "Detect 1:25 detail frames (dashed color 1/10) containing "
+                     + "distribution circles and scale those circles by 0.5 "
+                     + "(preview dialog; default 1:50 R=37.5 -> 18.75).")
                 }, columnsPerRow: 1));
 
             // Panel wlasciciela + wersja/data builda (tekstowo, bez ikon).
