@@ -17,7 +17,11 @@ namespace AsdRcSlab
         public List<string> DictsUsed = new List<string>();     // słowniki obecne w bazie
         public List<string> DictsSkipped = new List<string>();  // brak w API/bazie 2015
 
-        public int Total => Counts.Values.Sum();
+        // Obiekty zwrócone przez Purge jako purgeable, ale nieusuwalne (chronione
+        // domyślne AutoCAD: eVSIsAcadDefault, domyślne materiały itd.).
+        public int SkippedProtected;
+
+        public int Total => Counts.Values.Sum();   // FAKTYCZNIE usunięte (bez protected)
 
         public void Inc(string cat, int n = 1)
         {
@@ -40,6 +44,8 @@ namespace AsdRcSlab
             foreach (var cat in Order)
                 if (Counts.TryGetValue(cat, out int n) && n > 0)
                     lines.Add($"  {cat}: {n}");
+            if (SkippedProtected > 0)
+                lines.Add($"  Skipped (protected): {SkippedProtected}");
             return string.Join(Environment.NewLine, lines);
         }
     }
@@ -166,16 +172,37 @@ namespace AsdRcSlab
                 db.Purge(col);              // filtruje: zostają tylko purgeable
                 if (col.Count == 0) break;
 
+                int erasedThisPass = 0;
                 foreach (ObjectId id in col)
                 {
-                    var obj = tr.GetObject(id, OpenMode.ForWrite, false, true);
-                    if (obj == null) { remaining.Remove(id); continue; }
-                    obj.Erase();
-                    rep.Inc(catMap.TryGetValue(id, out var c) ? c : "Blocks");
-                    remaining.Remove(id);
+                    try
+                    {
+                        var obj = tr.GetObject(id, OpenMode.ForWrite, false, true);
+                        if (obj == null) { remaining.Remove(id); continue; }
+                        obj.Erase();
+                        rep.Inc(catMap.TryGetValue(id, out var c) ? c : "Blocks");
+                        erasedThisPass++;
+                    }
+                    catch (Autodesk.AutoCAD.Runtime.Exception)
+                    {
+                        // np. eVSIsAcadDefault — chroniony default, pomiń.
+                        rep.SkippedProtected++;
+                    }
+                    catch (System.Exception)
+                    {
+                        rep.SkippedProtected++;
+                    }
+                    finally
+                    {
+                        // Zawsze usuń z puli — protected nie wracają w kolejnym przebiegu.
+                        remaining.Remove(id);
+                    }
                 }
+
+                // Progress-break: zostały same nieusuwalne defaulty → koniec.
+                if (erasedThisPass == 0) break;
             }
-            Diag($"named purge passes={pass}");
+            Diag($"named purge passes={pass} skippedProtected={rep.SkippedProtected}");
         }
 
         // ---------- geometria zerowa + pusty tekst ----------
@@ -201,14 +228,21 @@ namespace AsdRcSlab
                 }
             }
 
+            int erased = 0;
             foreach (var (id, cat) in toErase)
             {
-                var ent = tr.GetObject(id, OpenMode.ForWrite, false, true) as Entity;
-                if (ent == null) continue;
-                ent.Erase();
-                rep.Inc(cat);
+                try
+                {
+                    var ent = tr.GetObject(id, OpenMode.ForWrite, false, true) as Entity;
+                    if (ent == null) continue;
+                    ent.Erase();
+                    rep.Inc(cat);
+                    erased++;
+                }
+                catch (Autodesk.AutoCAD.Runtime.Exception) { rep.SkippedProtected++; }
+                catch (System.Exception)                   { rep.SkippedProtected++; }
             }
-            Diag($"bad geometry erased={toErase.Count}");
+            Diag($"bad geometry erased={erased} (candidates={toErase.Count})");
         }
 
         // Zwraca kategorię ("Zero-length geometry"/"Empty text") lub null.
