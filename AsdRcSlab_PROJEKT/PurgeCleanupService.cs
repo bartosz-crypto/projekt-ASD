@@ -30,12 +30,14 @@ namespace AsdRcSlab
         }
 
         // Stała kolejność wyświetlania (tylko kategorie z >0).
+        // p141: usunięto kategorie słownikowe NOD (Table/MLine/MLeader/Visual styles,
+        // Materials, Groups, Plot styles) — już nie purgujemy słowników.
+        // Geometria/tekst tylko z model space → warianty "(model)".
         public static readonly string[] Order =
         {
             "Layers", "Blocks", "Linetypes", "Text styles", "Dim styles",
-            "Table styles", "MLine styles", "MLeader styles", "Visual styles",
-            "Materials", "Groups", "Plot styles", "RegApps", "UCS", "Views",
-            "Zero-length geometry", "Empty text"
+            "RegApps", "UCS", "Views",
+            "Zero-length geometry (model)", "Empty text (model)"
         };
 
         public string BuildSummary()
@@ -60,20 +62,13 @@ namespace AsdRcSlab
     {
         private const double Eps = 1e-6;
 
-        // Słowniki w Named Objects Dictionary (wersjoodporne — bez zależności od
-        // db.XxxDictionaryId, których część istnieje dopiero w API 2017+).
-        private static readonly (string Key, string Cat)[] DictSources =
-        {
-            ("ACAD_MLINESTYLE",      "MLine styles"),
-            ("ACAD_TABLESTYLE",      "Table styles"),
-            ("ACAD_MLEADERSTYLE",    "MLeader styles"),
-            ("ACAD_VISUALSTYLE",     "Visual styles"),
-            ("ACAD_MATERIAL",        "Materials"),
-            ("ACAD_GROUP",           "Groups"),
-            ("ACAD_PLOTSTYLENAME",   "Plot styles"),
-            ("ACAD_DETAILVIEWSTYLE", "Detail view styles"),
-            ("ACAD_SECTIONVIEWSTYLE","Section view styles"),
-        };
+        // p141: USUNIĘTO purge słowników NOD (ACAD_PLOTSTYLENAME, ACAD_MATERIAL,
+        // ACAD_GROUP, ACAD_VISUALSTYLE, ACAD_MLINESTYLE, ACAD_TABLESTYLE,
+        // ACAD_MLEADERSTYLE, ACAD_DETAILVIEWSTYLE, ACAD_SECTIONVIEWSTYLE).
+        // Kasowanie wpisów tych słowników (zwł. plot styles) zostawiało zawisłe
+        // twarde wskaźniki w layoutach/plot → Access Violation przy wejściu w
+        // layout / plotowaniu. Purgujemy WYŁĄCZNIE tablice symboli (bezpieczne
+        // dla Database.Purge).
 
         private static readonly string DiagLogPath =
             Path.Combine(
@@ -140,27 +135,7 @@ namespace AsdRcSlab
             AddTable(db.UcsTableId,       "UCS");
             AddTable(db.ViewTableId,      "Views");
 
-            // Słowniki z NOD (guard każdego).
-            var nod = tr.GetObject(db.NamedObjectsDictionaryId, OpenMode.ForRead) as DBDictionary;
-            foreach (var (key, cat) in DictSources)
-            {
-                try
-                {
-                    if (nod == null || !nod.Contains(key)) { rep.DictsSkipped.Add(cat); continue; }
-                    var dict = tr.GetObject(nod.GetAt(key), OpenMode.ForRead) as DBDictionary;
-                    if (dict == null) { rep.DictsSkipped.Add(cat); continue; }
-                    rep.DictsUsed.Add(cat);
-                    foreach (DBDictionaryEntry e in dict)
-                    {
-                        if (remaining.Add(e.Value)) catMap[e.Value] = cat;
-                    }
-                }
-                catch (System.Exception ex)
-                {
-                    rep.DictsSkipped.Add(cat);
-                    Diag($"dict {cat} ({key}) skipped: {ex.Message}");
-                }
-            }
+            // p141: BRAK purge słowników NOD — patrz komentarz przy DiagLogPath.
 
             // Iteracyjny purge: Database.Purge zostawia w kolekcji tylko purgeable;
             // erase ich może zwolnić kolejne → powtarzaj aż pusto.
@@ -213,19 +188,20 @@ namespace AsdRcSlab
 
             var toErase = new List<(ObjectId Id, string Cat)>();
 
-            foreach (ObjectId btrId in bt)
+            // p141: TYLKO MODEL SPACE. Paper space / layouty zostawiamy nietknięte —
+            // tam są viewporty, pola, elementy plot-stampa: kasowanie ryzykowne.
+            var ms = tr.GetObject(
+                SymbolUtilityServices.GetBlockModelSpaceId(db), OpenMode.ForRead)
+                as BlockTableRecord;
+            if (ms == null) return;
+
+            foreach (ObjectId entId in ms)
             {
-                var btr = tr.GetObject(btrId, OpenMode.ForRead) as BlockTableRecord;
-                if (btr == null || !btr.IsLayout) continue;   // tylko Model + Paper space
+                var ent = tr.GetObject(entId, OpenMode.ForRead) as Entity;
+                if (ent == null) continue;
 
-                foreach (ObjectId entId in btr)
-                {
-                    var ent = tr.GetObject(entId, OpenMode.ForRead) as Entity;
-                    if (ent == null) continue;
-
-                    string cat = ClassifyBad(ent);
-                    if (cat != null) toErase.Add((entId, cat));
-                }
+                string cat = ClassifyBad(ent);
+                if (cat != null) toErase.Add((entId, cat));
             }
 
             int erased = 0;
@@ -245,36 +221,37 @@ namespace AsdRcSlab
             Diag($"bad geometry erased={erased} (candidates={toErase.Count})");
         }
 
-        // Zwraca kategorię ("Zero-length geometry"/"Empty text") lub null.
+        // p141: skan tylko w model space → kategorie "(model)".
+        // Zwraca kategorię ("Zero-length geometry (model)"/"Empty text (model)") lub null.
         private static string ClassifyBad(Entity ent)
         {
             if (ent is DBText t)
-                return string.IsNullOrWhiteSpace(t.TextString) ? "Empty text" : null;
+                return string.IsNullOrWhiteSpace(t.TextString) ? "Empty text (model)" : null;
 
             if (ent is MText mt)
             {
                 string txt = mt.Text;
                 if (string.IsNullOrWhiteSpace(txt)) txt = mt.Contents;
-                return string.IsNullOrWhiteSpace(txt) ? "Empty text" : null;
+                return string.IsNullOrWhiteSpace(txt) ? "Empty text (model)" : null;
             }
 
             if (ent is Line ln)
-                return ln.StartPoint.DistanceTo(ln.EndPoint) < Eps ? "Zero-length geometry" : null;
+                return ln.StartPoint.DistanceTo(ln.EndPoint) < Eps ? "Zero-length geometry (model)" : null;
 
             if (ent is Arc ar)
-                return ar.Radius < Eps ? "Zero-length geometry" : null;
+                return ar.Radius < Eps ? "Zero-length geometry (model)" : null;
 
             if (ent is Circle ci)
-                return ci.Radius < Eps ? "Zero-length geometry" : null;
+                return ci.Radius < Eps ? "Zero-length geometry (model)" : null;
 
             if (ent is Polyline pl)
-                return (pl.NumberOfVertices < 2 || pl.Length < Eps) ? "Zero-length geometry" : null;
+                return (pl.NumberOfVertices < 2 || pl.Length < Eps) ? "Zero-length geometry (model)" : null;
 
             if (ent is Polyline2d p2)
-                return IsZeroOldPolyline(p2) ? "Zero-length geometry" : null;
+                return IsZeroOldPolyline(p2) ? "Zero-length geometry (model)" : null;
 
             if (ent is Polyline3d p3)
-                return IsZeroOldPolyline(p3) ? "Zero-length geometry" : null;
+                return IsZeroOldPolyline(p3) ? "Zero-length geometry (model)" : null;
 
             return null;
         }
