@@ -16,17 +16,16 @@ namespace AsdRcSlab
     {
         // Stempel wersji — wypisywany na starcie komendy, żeby user wiedział, że
         // załadowała się WŁAŚCIWA (nowa) DLL, a nie stara kopia z innego bundla.
-        public const string BuildStamp = "p147";
+        public const string BuildStamp = "p148";
 
-        // p145: GOŁE tokeny dokładnie jak ręczny `-PURGE All * N`, który u usera
-        // działa. Wariant z podkreślnikami ("_-PURGE _All * _No") urywał się na
-        // "Enter name(s) to purge <*>:" → *Cancel* i purge nie zachodził.
-        // Spacja = Enter; KOŃCOWA spacja = ostatni Enter (verify N).
-        // p147: POWRÓT do POJEDYNCZEGO przebiegu (wersja wydaniowa). "-PURGE All"
-        // czyści natychmiast i NIE pobiera "* N" → przy 3× te tokeny zostawały luzem
-        // i rozjeżdżały kolejne przebiegi (drugi -PURGE zawisał na "Enter name(s)…").
+        // p148: makro = DWA tokeny: "-PURGE" (Enter wywołuje komendę) + "All"
+        // (Enter zatwierdza typ → purguje WSZYSTKO i KOŃCZY komendę; All nie pyta
+        // o name/verify). Trailing space po "All" to JEDYNY potrzebny Enter.
+        // Wcześniejsze "* N" były zbędne: po "All" komenda już się kończyła, więc
+        // Enter z "*"/"N" POWTARZAŁ -PURGE i zawieszał na "Enter name(s) to purge
+        // <*>:". Wariant z podkreślnikami ("_-PURGE _All …") też się urywał.
         // Głębsze czyszczenie = uruchom komendę ponownie (idempotentne, bezpieczne).
-        private const string PurgeMacro = "-PURGE All * N ";
+        private const string PurgeMacro = "-PURGE All ";
 
         public static void RunNativePurge(Document doc)
         {
