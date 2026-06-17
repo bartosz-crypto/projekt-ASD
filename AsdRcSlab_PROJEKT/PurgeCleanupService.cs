@@ -28,16 +28,18 @@ namespace AsdRcSlab
     {
         // Stempel wersji — wypisywany na starcie komendy, żeby user wiedział, że
         // załadowała się WŁAŚCIWA (nowa) DLL, a nie stara kopia z innego bundla.
-        public const string BuildStamp = "p150";
+        public const string BuildStamp = "p151";
 
         private static readonly string ScriptPath =
             Path.Combine(Path.GetTempPath(), "AsdRcSlab_purge.scr");
 
         // 3 bloki = kaskada (usunięcie bloku zwalnia warstwę/linetyp w kolejnym).
-        // Każdy blok: -PURGE↵ All↵ *↵ N↵ (verify=No). BEZ pustych linii / QUIT
-        // (pusta linia = Enter = powtórzenie komendy; QUIT zamknąłby AutoCAD).
+        // Każdy blok: -PURGE↵ All↵ *↵ N↵ (verify=No). p151: ostatnie dwie linie
+        // przywracają FILEDIA=1 (ustawiamy 0 z API przed SCRIPT, by nie było okna
+        // wyboru pliku). BEZ pustych linii / QUIT (pusta linia = Enter = powtórzenie
+        // komendy; QUIT zamknąłby AutoCAD). Plik NIE kończy się pustą linią.
         private const string PurgeBlock = "-PURGE\r\nAll\r\n*\r\nN\r\n";
-        private const string ScriptBody = PurgeBlock + PurgeBlock + PurgeBlock;
+        private const string ScriptBody = PurgeBlock + PurgeBlock + PurgeBlock + "FILEDIA\r\n1\r\n";
 
         /// <summary>
         /// Liczy „before", zapisuje .scr, rejestruje jednorazowy CommandEnded
@@ -73,10 +75,13 @@ namespace AsdRcSlab
             };
             doc.CommandEnded += handler;
 
-            // AutoCAD akceptuje forward-slashe w ścieżce; unikamy kłopotów z '\'.
+            // p151: FILEDIA ustaw z API (NIE przez makro — makrowe "FILEDIA 0 …"
+            // rozjeżdżało tokeny i zacinało na "Enter new value for FILEDIA"). Makro
+            // = TYLKO SCRIPT ze ścieżką (ukośniki w przód, brak kłopotu z '\"').
+            // FILEDIA=1 przywraca ostatnia linia w .scr (skrypt wykonuje liniowo).
             string p = ScriptPath.Replace("\\", "/");
-            doc.SendStringToExecute(
-                "FILEDIA 0 SCRIPT \"" + p + "\" FILEDIA 1 ", true, false, false);
+            Application.SetSystemVariable("FILEDIA", 0);
+            doc.SendStringToExecute("_SCRIPT \"" + p + "\"\n", true, false, false);
 
             return "Purge started (native -PURGE x3 via SCRIPT). Per-category report follows on the command line.";
         }
