@@ -2609,11 +2609,11 @@ namespace AsdRcSlab
             }
         }
 
-        // === ASD-PRG — Purge / Cleanup (v4, p143) ===
-        // GOŁA natywna komenda AutoCAD -PURGE (×3) przez SendStringToExecute —
-        // dokładnie to, co bezpieczny ręczny `-PURGE All * N`. ZERO managed
-        // db.Purge / Erase / transakcji / LockDocument wokół purge. Stempel wersji
-        // na starcie pozwala wykryć, czy załadowała się właściwa (nowa) DLL.
+        // === ASD-PRG — Purge / Cleanup (v5, p149) ===
+        // Bezpieczny natywny purge przez COM AcadDocument.PurgeAll() (×3) —
+        // BEZ linii poleceń, bez promptów, synchronicznie. ZERO managed db.Purge /
+        // Erase / SendStringToExecute. Stempel wersji na starcie pozwala wykryć,
+        // czy załadowała się właściwa (nowa) DLL.
         [CommandMethod("ASD-PRG")]
         public void CmdPurgeCleanup()
         {
@@ -2627,8 +2627,8 @@ namespace AsdRcSlab
 
             // b) Proste Yes/No.
             var ans = System.Windows.MessageBox.Show(
-                "Run full purge (standard AutoCAD PURGE) on this drawing?",
-                "Purge / Cleanup",
+                "Run full purge (safe) on this drawing?",
+                "ASD-PRG",
                 System.Windows.MessageBoxButton.YesNo,
                 System.Windows.MessageBoxImage.Question);
             if (ans != System.Windows.MessageBoxResult.Yes)
@@ -2637,12 +2637,17 @@ namespace AsdRcSlab
                 return;
             }
 
-            // c) GOŁY natywny -PURGE ×3 — nic poza tym.
-            PurgeCleanupService.RunNativePurge(doc);
+            // c) Natywny purge przez COM PurgeAll() ×3 — zwraca raport before/after.
+            string report = PurgeCleanupService.RunNativePurge(doc);
 
-            // d) Info.
-            ed.WriteMessage("\nPRG: native -PURGE started — see command line for details. " +
-                "Run ASD-PRG again for deeper cleanup (safe, idempotent).\n");
+            // d) Raport.
+            ed.WriteMessage("\nPRG: done.\n" + report + "\n");
+            System.Windows.MessageBox.Show(
+                "Purge done.\n\n" + report +
+                "\n\nRun ASD-PRG again for deeper cleanup (safe, idempotent).",
+                "ASD-PRG",
+                System.Windows.MessageBoxButton.OK,
+                System.Windows.MessageBoxImage.Information);
         }
     }
 }
