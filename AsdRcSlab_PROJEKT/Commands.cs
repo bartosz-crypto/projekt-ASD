@@ -2609,11 +2609,13 @@ namespace AsdRcSlab
             }
         }
 
-        // === ASD-PRG — Purge / Cleanup (v5, p149) ===
-        // Bezpieczny natywny purge przez COM AcadDocument.PurgeAll() (×3) —
-        // BEZ linii poleceń, bez promptów, synchronicznie. ZERO managed db.Purge /
-        // Erase / SendStringToExecute. Stempel wersji na starcie pozwala wykryć,
-        // czy załadowała się właściwa (nowa) DLL.
+        // === ASD-PRG — Purge / Cleanup (v6, p150) ===
+        // Bezpieczny natywny purge przez komendę -PURGE dostarczoną plikiem .scr
+        // (komenda SCRIPT). Headless-zwalidowane: zero dangling/błędów AUDIT, brak
+        // crasha layout/plot, niezawodne (bez zawieszki makra). ZERO db.Purge /
+        // Erase / COM PurgeAll. Stempel wersji na starcie wykrywa starą DLL.
+        // Purge jest asynchroniczny → raport per-kategoria pojawi się na linii
+        // poleceń po zakończeniu skryptu (CommandEnded w serwisie).
         [CommandMethod("ASD-PRG")]
         public void CmdPurgeCleanup()
         {
@@ -2637,17 +2639,9 @@ namespace AsdRcSlab
                 return;
             }
 
-            // c) Natywny purge przez COM PurgeAll() ×3 — zwraca raport before/after.
-            string report = PurgeCleanupService.RunNativePurge(doc);
-
-            // d) Raport.
-            ed.WriteMessage("\nPRG: done.\n" + report + "\n");
-            System.Windows.MessageBox.Show(
-                "Purge done.\n\n" + report +
-                "\n\nRun ASD-PRG again for deeper cleanup (safe, idempotent).",
-                "ASD-PRG",
-                System.Windows.MessageBoxButton.OK,
-                System.Windows.MessageBoxImage.Information);
+            // c) Natywny purge przez SCRIPT (async). Zwraca status startowy.
+            string status = PurgeCleanupService.RunNativePurge(doc);
+            ed.WriteMessage("\n" + status + "\n");
         }
     }
 }

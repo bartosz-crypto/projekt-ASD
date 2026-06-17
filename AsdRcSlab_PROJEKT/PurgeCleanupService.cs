@@ -1,50 +1,84 @@
 using Autodesk.AutoCAD.ApplicationServices;
 using Autodesk.AutoCAD.DatabaseServices;
+using System;
 using System.Collections.Generic;
-using System.Linq;
+using System.IO;
 
 namespace AsdRcSlab
 {
     /// <summary>
-    /// ASD-PRG (v5, p149): czyszczenie przez API <c>AcadDocument.PurgeAll()</c>
-    /// (COM, przez <c>dynamic</c>) — KONIEC z makrem -PURGE w linii poleceń.
+    /// ASD-PRG (v6, p150): czyszczenie przez NATYWNĄ komendę AutoCAD <c>-PURGE</c>
+    /// dostarczoną PLIKIEM SKRYPTU (.scr) uruchamianym komendą <c>SCRIPT</c>.
     ///
-    /// Karmienie komendy -PURGE przez SendStringToExecute było narowiste: po
-    /// zatwierdzeniu "All" komenda kończyła się, a zostawione tokeny ("* N")
-    /// powtarzały -PURGE i zawieszały na "Enter name(s) to purge". PurgeAll() to
-    /// ten sam bezpieczny natywny purge (respektuje referencje, NIE psuje
-    /// layoutu/plotu), ale BEZ linii poleceń, bez promptów, SYNCHRONICZNIE.
+    /// DLACZEGO komenda, a nie API: walidacja headless (accoreconsole, AutoCAD 2015)
+    /// potwierdziła, że komenda `-PURGE All * N` (×3) NIE wprowadza błędów/dangling
+    /// (AUDIT po purge = baseline drawing). Programowe API (Database.Purge+Erase,
+    /// COM PurgeAll) crashowało wejście w layout/plot (Access Violation 0x0050) —
+    /// usuwało obiekty referencjonowane przez layouty/plot, których komenda pilnuje.
     ///
-    /// ZERO managed <c>db.Purge</c>, ZERO <c>Erase</c>, ZERO SendStringToExecute.
-    /// Liczenie before/after jest WYŁĄCZNIE do odczytu → raport dokładny (nie approx).
+    /// DLACZEGO SCRIPT, a nie surowe SendStringToExecute(-PURGE…): przez SCRIPT
+    /// procesor skryptu karmi prompty komendy linia-po-linii z poszanowaniem granic
+    /// komend → nie ma efektu „resztkowy Enter powtarza -PURGE" (który wieszał makro
+    /// na "Enter name(s) to purge"). Walidacja headless: 3 bloki skonsumowane czysto.
+    ///
+    /// ZERO db.Purge / Erase / COM PurgeAll. Liczenie before/after = WYŁĄCZNIE
+    /// odczyt (purge jest asynchroniczny → after liczony w CommandEnded po SCRIPT).
     /// </summary>
     public static class PurgeCleanupService
     {
         // Stempel wersji — wypisywany na starcie komendy, żeby user wiedział, że
         // załadowała się WŁAŚCIWA (nowa) DLL, a nie stara kopia z innego bundla.
-        public const string BuildStamp = "p149";
+        public const string BuildStamp = "p150";
+
+        private static readonly string ScriptPath =
+            Path.Combine(Path.GetTempPath(), "AsdRcSlab_purge.scr");
+
+        // 3 bloki = kaskada (usunięcie bloku zwalnia warstwę/linetyp w kolejnym).
+        // Każdy blok: -PURGE↵ All↵ *↵ N↵ (verify=No). BEZ pustych linii / QUIT
+        // (pusta linia = Enter = powtórzenie komendy; QUIT zamknąłby AutoCAD).
+        private const string PurgeBlock = "-PURGE\r\nAll\r\n*\r\nN\r\n";
+        private const string ScriptBody = PurgeBlock + PurgeBlock + PurgeBlock;
 
         /// <summary>
-        /// Uruchamia bezpieczny natywny purge przez COM PurgeAll() (3 przebiegi =
-        /// kaskada zagnieżdżonych). Zwraca raport tekstowy (różnice before/after
-        /// per tablica symboli). ZERO SendStringToExecute/db.Purge/Erase.
+        /// Liczy „before", zapisuje .scr, rejestruje jednorazowy CommandEnded
+        /// (po SCRIPT liczy „after" i wypisuje różnice), po czym uruchamia SCRIPT
+        /// przez SendStringToExecute (FILEDIA 0/1 = bez okna wyboru pliku).
+        /// Zwraca status startowy (purge jest asynchroniczny — raport per kategoria
+        /// pojawi się na linii poleceń po zakończeniu skryptu).
         /// </summary>
         public static string RunNativePurge(Document doc)
         {
             if (doc == null) return "No active document.";
             var db = doc.Database;
+            var ed = doc.Editor;
 
             var before = CountSymbols(db);
 
-            dynamic acadDoc = doc.GetAcadDocument();   // COM IAcadDocument
-            for (int i = 0; i < 3; i++)                // 3 przebiegi: kaskada
-            {
-                try { acadDoc.PurgeAll(); }            // bezpieczny purge, synchronicznie
-                catch { break; }
-            }
+            try { File.WriteAllText(ScriptPath, ScriptBody); }
+            catch (Exception ex) { return "Failed to write purge script: " + ex.Message; }
 
-            var after = CountSymbols(db);
-            return BuildDiffReport(before, after);
+            // Jednorazowy hook: po zakończeniu komendy SCRIPT policz „after" i raport.
+            CommandEventHandler handler = null;
+            handler = (s, e) =>
+            {
+                if (!string.Equals(e.GlobalCommandName, "SCRIPT", StringComparison.OrdinalIgnoreCase))
+                    return;                          // ignoruj zagnieżdżone -PURGE
+                doc.CommandEnded -= handler;
+                try
+                {
+                    var after = CountSymbols(db);
+                    ed.WriteMessage("\nPRG: done.\n" + BuildDiffReport(before, after) + "\n");
+                }
+                catch { /* report best-effort */ }
+            };
+            doc.CommandEnded += handler;
+
+            // AutoCAD akceptuje forward-slashe w ścieżce; unikamy kłopotów z '\'.
+            string p = ScriptPath.Replace("\\", "/");
+            doc.SendStringToExecute(
+                "FILEDIA 0 SCRIPT \"" + p + "\" FILEDIA 1 ", true, false, false);
+
+            return "Purge started (native -PURGE x3 via SCRIPT). Per-category report follows on the command line.";
         }
 
         // Stała kolejność wyświetlania kategorii.
