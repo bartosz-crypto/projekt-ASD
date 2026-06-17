@@ -146,10 +146,11 @@ namespace AsdRcSlab
                      "Detect 1:25 detail frames (dashed color 1/10) containing "
                      + "distribution circles and scale those circles by 0.5 "
                      + "(preview dialog; default 1:50 R=37.5 -> 18.75)."),
-                    ("Purge / Cleanup", "ASD-PRG",
-                     "Remove unused named objects (layers, blocks, linetypes, "
-                     + "styles…) plus zero-length geometry and empty text. "
-                     + "Shows a Yes/No summary before deleting.")
+                    // TODO: re-enable ASD-PRG button after purge fix (see p150-p151)
+                    // ("Purge / Cleanup", "ASD-PRG",
+                    //  "Remove unused named objects (layers, blocks, linetypes, "
+                    //  + "styles…) plus zero-length geometry and empty text. "
+                    //  + "Shows a Yes/No summary before deleting.")
                 }, columnsPerRow: 1));
 
             // Panel wlasciciela + wersja/data builda (tekstowo, bez ikon).

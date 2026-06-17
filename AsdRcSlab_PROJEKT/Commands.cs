@@ -2616,7 +2616,8 @@ namespace AsdRcSlab
         // Erase / COM PurgeAll. Stempel wersji na starcie wykrywa starą DLL.
         // Purge jest asynchroniczny → raport per-kategoria pojawi się na linii
         // poleceń po zakończeniu skryptu (CommandEnded w serwisie).
-        [CommandMethod("ASD-PRG")]
+        // TODO: disabled temporarily — re-enable [CommandMethod] after purge delivery fixed (p150-p151)
+        // [CommandMethod("ASD-PRG")]
         public void CmdPurgeCleanup()
         {
             var doc = AcApp.DocumentManager.MdiActiveDocument;
