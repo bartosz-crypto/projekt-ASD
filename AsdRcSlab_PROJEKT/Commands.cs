@@ -2609,9 +2609,11 @@ namespace AsdRcSlab
             }
         }
 
-        // === p133: ASD-PRG — Purge / Cleanup ===
-        // Usuwa nieużywane obiekty nazwane + geometrię zerową + pusty tekst.
-        // Najpierw dry-run + podsumowanie Yes/No, dopiero po Yes faktyczny purge.
+        // === ASD-PRG — Purge / Cleanup (v3, p142) ===
+        // Czyszczenie DELEGOWANE do natywnej komendy AutoCAD -PURGE (bezpieczne:
+        // respektuje viewporty/layouty/plot styles). Estymata read-only → Yes/No
+        // → natywny -PURGE → raport rzeczywisty (różnice PRZED/PO). ZERO ręcznego
+        // Erase — to gwarantuje, że layout/plot nie zostaną uszkodzone.
         [CommandMethod("ASD-PRG")]
         public void CmdPurgeCleanup()
         {
@@ -2623,9 +2625,9 @@ namespace AsdRcSlab
             {
                 var svc = new PurgeCleanupService();
 
-                // Dry-run (Abort) — dokładne liczby.
-                var dry = svc.Run(doc, commit: false);
-                if (dry.Total == 0)
+                // Estymata (read-only — nic nie kasuje).
+                var est = svc.EstimateUnused(doc);
+                if (est.Total == 0)
                 {
                     ed.WriteMessage("\nPRG: Nothing to purge — drawing is clean.\n");
                     System.Windows.MessageBox.Show(
@@ -2637,9 +2639,10 @@ namespace AsdRcSlab
                 }
 
                 string summary =
-                    "Purge / Cleanup will remove:\n\n" +
-                    dry.BuildSummary() + "\n\n" +
-                    $"  TOTAL: {dry.Total}\n\nProceed?";
+                    "Estimated unused to purge (approx.):\n\n" +
+                    est.BuildSummary() + "\n\n" +
+                    $"  TOTAL (est.): {est.Total}\n\n" +
+                    "Run safe full purge (native -PURGE)?";
 
                 var ans = System.Windows.MessageBox.Show(summary,
                     "Purge / Cleanup",
@@ -2651,16 +2654,19 @@ namespace AsdRcSlab
                     return;
                 }
 
-                // Apply (Commit) — rzeczywiste usunięcie.
-                var rep = svc.Run(doc, commit: true);
+                // Aplikacja — natywne -PURGE przez SendStringToExecute (ASYNC).
+                // Zero ręcznego Erase. Komenda wykona się po zamknięciu tego dialogu.
+                svc.QueueNativePurge(doc);
 
-                ed.WriteMessage($"\nPRG: removed total={rep.Total} " +
-                    $"[{string.Join(", ", PurgeReport.Order.Where(c => rep.Counts.TryGetValue(c, out var n) && n > 0).Select(c => $"{c}={rep.Counts[c]}"))}]\n");
+                ed.WriteMessage($"\nPRG: native -PURGE started (3 passes). " +
+                    $"Estimated removed (approx) total={est.Total} " +
+                    $"[{string.Join(", ", PurgeReport.Order.Where(c => est.Counts.TryGetValue(c, out var n) && n > 0).Select(c => $"{c}={est.Counts[c]}"))}]\n");
 
                 System.Windows.MessageBox.Show(
-                    "Purge / Cleanup done. Removed:\n\n" +
-                    rep.BuildSummary() + "\n\n" +
-                    $"  TOTAL: {rep.Total}\n\n" +
+                    "Native -PURGE started (3 passes). Estimated removed (approx):\n\n" +
+                    est.BuildSummary() + "\n\n" +
+                    $"  TOTAL (est.): {est.Total}\n\n" +
+                    "Actual purge runs now on the command line (counts are estimates).\n" +
                     @"Diag log: %TEMP%\AsdRcSlab-purge-diag.log",
                     "Purge / Cleanup",
                     System.Windows.MessageBoxButton.OK,

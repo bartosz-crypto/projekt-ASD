@@ -1,6 +1,5 @@
 using Autodesk.AutoCAD.ApplicationServices;
 using Autodesk.AutoCAD.DatabaseServices;
-using Autodesk.AutoCAD.Geometry;
 using System;
 using System.Collections.Generic;
 using System.IO;
@@ -10,18 +9,11 @@ namespace AsdRcSlab
 {
     public class PurgeReport
     {
-        // Kategoria -> liczba usuniętych.
+        // Kategoria -> liczba.
         public Dictionary<string, int> Counts =
             new Dictionary<string, int>(StringComparer.Ordinal);
 
-        public List<string> DictsUsed = new List<string>();     // słowniki obecne w bazie
-        public List<string> DictsSkipped = new List<string>();  // brak w API/bazie 2015
-
-        // Obiekty zwrócone przez Purge jako purgeable, ale nieusuwalne (chronione
-        // domyślne AutoCAD: eVSIsAcadDefault, domyślne materiały itd.).
-        public int SkippedProtected;
-
-        public int Total => Counts.Values.Sum();   // FAKTYCZNIE usunięte (bez protected)
+        public int Total => Counts.Values.Sum();
 
         public void Inc(string cat, int n = 1)
         {
@@ -30,14 +22,11 @@ namespace AsdRcSlab
         }
 
         // Stała kolejność wyświetlania (tylko kategorie z >0).
-        // p141: usunięto kategorie słownikowe NOD (Table/MLine/MLeader/Visual styles,
-        // Materials, Groups, Plot styles) — już nie purgujemy słowników.
-        // Geometria/tekst tylko z model space → warianty "(model)".
+        // p142: wyłącznie tablice symboli (native -PURGE robi resztę bezpiecznie).
         public static readonly string[] Order =
         {
             "Layers", "Blocks", "Linetypes", "Text styles", "Dim styles",
-            "RegApps", "UCS", "Views",
-            "Zero-length geometry (model)", "Empty text (model)"
+            "RegApps", "UCS", "Views"
         };
 
         public string BuildSummary()
@@ -46,29 +35,38 @@ namespace AsdRcSlab
             foreach (var cat in Order)
                 if (Counts.TryGetValue(cat, out int n) && n > 0)
                     lines.Add($"  {cat}: {n}");
-            if (SkippedProtected > 0)
-                lines.Add($"  Skipped (protected): {SkippedProtected}");
             return string.Join(Environment.NewLine, lines);
         }
     }
 
     /// <summary>
-    /// ASD-PRG: pełne czyszczenie rysunku — usuwa NIEUŻYWANE obiekty nazwane
-    /// (warstwy, bloki, linetypy, style…) przez zarządzane Database.Purge oraz
-    /// geometrię zerową i pusty tekst. commit=false → dry-run (Abort, dokładne
-    /// liczby). commit=true → faktyczne usunięcie (Commit).
+    /// ASD-PRG (v3, p142): czyszczenie rysunku DELEGOWANE do natywnej komendy
+    /// AutoCAD <c>-PURGE</c>, która respektuje wszystkie referencje (viewporty,
+    /// layouty, plot styles) i nigdy nie psuje rysunku.
+    ///
+    /// Wcześniejszy ręczny Database.Purge + Erase (oraz kasowanie geometrii
+    /// zerowej / pustego tekstu) usuwał obiekty wciąż referencjonowane przez
+    /// nadpisania w viewportach / layouty → Access Violation 0x0050 przy wejściu
+    /// w layout / plotowaniu. Tu NIE MA żadnego ręcznego Erase.
+    ///
+    /// <see cref="EstimateUnused"/> = read-only estymata (Database.Purge na
+    /// kolekcji NICZEGO nie kasuje — tylko filtruje). <see cref="ApplyNativePurge"/>
+    /// uruchamia natywny -PURGE i raportuje rzeczywiste różnice PRZED/PO.
     /// </summary>
     public class PurgeCleanupService
     {
-        private const double Eps = 1e-6;
-
-        // p141: USUNIĘTO purge słowników NOD (ACAD_PLOTSTYLENAME, ACAD_MATERIAL,
-        // ACAD_GROUP, ACAD_VISUALSTYLE, ACAD_MLINESTYLE, ACAD_TABLESTYLE,
-        // ACAD_MLEADERSTYLE, ACAD_DETAILVIEWSTYLE, ACAD_SECTIONVIEWSTYLE).
-        // Kasowanie wpisów tych słowników (zwł. plot styles) zostawiało zawisłe
-        // twarde wskaźniki w layoutach/plot → Access Violation przy wejściu w
-        // layout / plotowaniu. Purgujemy WYŁĄCZNIE tablice symboli (bezpieczne
-        // dla Database.Purge).
+        // Tablice symboli liczone do estymaty / raportu (bezpieczne).
+        private static readonly (Func<Database, ObjectId> TableId, string Cat)[] SymbolTables =
+        {
+            (db => db.LayerTableId,     "Layers"),
+            (db => db.BlockTableId,     "Blocks"),
+            (db => db.LinetypeTableId,  "Linetypes"),
+            (db => db.TextStyleTableId, "Text styles"),
+            (db => db.DimStyleTableId,  "Dim styles"),
+            (db => db.RegAppTableId,    "RegApps"),
+            (db => db.UcsTableId,       "UCS"),
+            (db => db.ViewTableId,      "Views"),
+        };
 
         private static readonly string DiagLogPath =
             Path.Combine(
@@ -85,190 +83,68 @@ namespace AsdRcSlab
             catch { /* ignore */ }
         }
 
-        public PurgeReport Run(Document doc, bool commit)
+        private static string Fmt(PurgeReport rep) =>
+            string.Join(", ", rep.Counts.Where(k => k.Value > 0).Select(k => $"{k.Key}={k.Value}"));
+
+        /// <summary>
+        /// READ-ONLY estymata nieużywanych obiektów nazwanych. Buduje kolekcję
+        /// ID z tablic symboli i woła <c>db.Purge(coll)</c> — to TYLKO odfiltrowuje
+        /// kolekcję (zostają purgeable), NIC nie kasuje w bazie. Liczby są
+        /// orientacyjne (native -PURGE może usunąć nieco inny zestaw, kaskadowo).
+        /// </summary>
+        public PurgeReport EstimateUnused(Document doc)
         {
             var rep = new PurgeReport();
             if (doc == null) return rep;
             var db = doc.Database;
 
-            Diag($"=== Run START === commit={commit}");
+            Diag("=== Estimate START (read-only) ===");
 
             using (doc.LockDocument())
             using (var tr = db.TransactionManager.StartTransaction())
             {
-                // 1. Geometria zerowa + pusty tekst (najpierw — zwalnia referencje).
-                PurgeBadGeometry(db, tr, rep);
+                var ids = new ObjectIdCollection();
+                var catMap = new Dictionary<ObjectId, string>();
 
-                // 2. Obiekty nazwane — iteracyjny Database.Purge aż do wyczerpania.
-                PurgeNamedObjects(db, tr, rep);
+                foreach (var (tableId, cat) in SymbolTables)
+                {
+                    var tbl = tr.GetObject(tableId(db), OpenMode.ForRead) as SymbolTable;
+                    if (tbl == null) continue;
+                    foreach (ObjectId id in tbl) { ids.Add(id); catMap[id] = cat; }
+                }
 
-                if (commit) tr.Commit(); else tr.Abort();
+                db.Purge(ids);   // read-only: zostają tylko purgeable, nic nie kasuje
+                foreach (ObjectId id in ids)
+                    rep.Inc(catMap.TryGetValue(id, out var c) ? c : "Blocks");
+
+                tr.Abort();      // dodatkowa gwarancja: żadnego zapisu
             }
 
-            Diag($"=== Run DONE === commit={commit} total={rep.Total} " +
-                 $"[{string.Join(", ", rep.Counts.Where(k => k.Value > 0).Select(k => $"{k.Key}={k.Value}"))}]");
+            Diag($"=== Estimate DONE (read-only) === est total={rep.Total} [{Fmt(rep)}]");
             return rep;
         }
 
-        // ---------- obiekty nazwane ----------
-        private void PurgeNamedObjects(Database db, Transaction tr, PurgeReport rep)
+        /// <summary>
+        /// APLIKACJA: uruchamia natywne <c>-PURGE</c> przez
+        /// <c>doc.SendStringToExecute</c> (Editor.Command nie istnieje w tym API).
+        /// 3 zagnieżdżone przebiegi — usunięcie bloku zwalnia warstwę/linetyp itd.
+        /// ZERO ręcznego Erase — native -PURGE respektuje wszystkie referencje.
+        ///
+        /// UWAGA: SendStringToExecute jest ASYNCHRONICZNE — komenda wykona się po
+        /// zakończeniu bieżącej. Dlatego rzeczywistych liczb PO nie da się policzyć
+        /// tu synchronicznie; do raportu używamy estymaty z <see cref="EstimateUnused"/>
+        /// (orientacyjnej).
+        /// </summary>
+        public void QueueNativePurge(Document doc)
         {
-            var catMap = new Dictionary<ObjectId, string>();
-            var remaining = new HashSet<ObjectId>();
+            if (doc == null) return;
 
-            void AddTable(ObjectId tableId, string cat)
-            {
-                var tbl = tr.GetObject(tableId, OpenMode.ForRead) as SymbolTable;
-                if (tbl == null) return;
-                foreach (ObjectId id in tbl)
-                {
-                    if (remaining.Add(id)) catMap[id] = cat;
-                }
-            }
+            Diag("=== Native -PURGE QUEUED (async SendStringToExecute, 3 passes) ===");
 
-            AddTable(db.LayerTableId,     "Layers");
-            AddTable(db.BlockTableId,     "Blocks");
-            AddTable(db.LinetypeTableId,  "Linetypes");
-            AddTable(db.TextStyleTableId, "Text styles");
-            AddTable(db.DimStyleTableId,  "Dim styles");
-            AddTable(db.RegAppTableId,    "RegApps");
-            AddTable(db.UcsTableId,       "UCS");
-            AddTable(db.ViewTableId,      "Views");
-
-            // p141: BRAK purge słowników NOD — patrz komentarz przy DiagLogPath.
-
-            // Iteracyjny purge: Database.Purge zostawia w kolekcji tylko purgeable;
-            // erase ich może zwolnić kolejne → powtarzaj aż pusto.
-            int pass = 0;
-            while (remaining.Count > 0)
-            {
-                pass++;
-                var col = new ObjectIdCollection(remaining.ToArray());
-                db.Purge(col);              // filtruje: zostają tylko purgeable
-                if (col.Count == 0) break;
-
-                int erasedThisPass = 0;
-                foreach (ObjectId id in col)
-                {
-                    try
-                    {
-                        var obj = tr.GetObject(id, OpenMode.ForWrite, false, true);
-                        if (obj == null) { remaining.Remove(id); continue; }
-                        obj.Erase();
-                        rep.Inc(catMap.TryGetValue(id, out var c) ? c : "Blocks");
-                        erasedThisPass++;
-                    }
-                    catch (Autodesk.AutoCAD.Runtime.Exception)
-                    {
-                        // np. eVSIsAcadDefault — chroniony default, pomiń.
-                        rep.SkippedProtected++;
-                    }
-                    catch (System.Exception)
-                    {
-                        rep.SkippedProtected++;
-                    }
-                    finally
-                    {
-                        // Zawsze usuń z puli — protected nie wracają w kolejnym przebiegu.
-                        remaining.Remove(id);
-                    }
-                }
-
-                // Progress-break: zostały same nieusuwalne defaulty → koniec.
-                if (erasedThisPass == 0) break;
-            }
-            Diag($"named purge passes={pass} skippedProtected={rep.SkippedProtected}");
-        }
-
-        // ---------- geometria zerowa + pusty tekst ----------
-        private void PurgeBadGeometry(Database db, Transaction tr, PurgeReport rep)
-        {
-            var bt = tr.GetObject(db.BlockTableId, OpenMode.ForRead) as BlockTable;
-            if (bt == null) return;
-
-            var toErase = new List<(ObjectId Id, string Cat)>();
-
-            // p141: TYLKO MODEL SPACE. Paper space / layouty zostawiamy nietknięte —
-            // tam są viewporty, pola, elementy plot-stampa: kasowanie ryzykowne.
-            var ms = tr.GetObject(
-                SymbolUtilityServices.GetBlockModelSpaceId(db), OpenMode.ForRead)
-                as BlockTableRecord;
-            if (ms == null) return;
-
-            foreach (ObjectId entId in ms)
-            {
-                var ent = tr.GetObject(entId, OpenMode.ForRead) as Entity;
-                if (ent == null) continue;
-
-                string cat = ClassifyBad(ent);
-                if (cat != null) toErase.Add((entId, cat));
-            }
-
-            int erased = 0;
-            foreach (var (id, cat) in toErase)
-            {
-                try
-                {
-                    var ent = tr.GetObject(id, OpenMode.ForWrite, false, true) as Entity;
-                    if (ent == null) continue;
-                    ent.Erase();
-                    rep.Inc(cat);
-                    erased++;
-                }
-                catch (Autodesk.AutoCAD.Runtime.Exception) { rep.SkippedProtected++; }
-                catch (System.Exception)                   { rep.SkippedProtected++; }
-            }
-            Diag($"bad geometry erased={erased} (candidates={toErase.Count})");
-        }
-
-        // p141: skan tylko w model space → kategorie "(model)".
-        // Zwraca kategorię ("Zero-length geometry (model)"/"Empty text (model)") lub null.
-        private static string ClassifyBad(Entity ent)
-        {
-            if (ent is DBText t)
-                return string.IsNullOrWhiteSpace(t.TextString) ? "Empty text (model)" : null;
-
-            if (ent is MText mt)
-            {
-                string txt = mt.Text;
-                if (string.IsNullOrWhiteSpace(txt)) txt = mt.Contents;
-                return string.IsNullOrWhiteSpace(txt) ? "Empty text (model)" : null;
-            }
-
-            if (ent is Line ln)
-                return ln.StartPoint.DistanceTo(ln.EndPoint) < Eps ? "Zero-length geometry (model)" : null;
-
-            if (ent is Arc ar)
-                return ar.Radius < Eps ? "Zero-length geometry (model)" : null;
-
-            if (ent is Circle ci)
-                return ci.Radius < Eps ? "Zero-length geometry (model)" : null;
-
-            if (ent is Polyline pl)
-                return (pl.NumberOfVertices < 2 || pl.Length < Eps) ? "Zero-length geometry (model)" : null;
-
-            if (ent is Polyline2d p2)
-                return IsZeroOldPolyline(p2) ? "Zero-length geometry (model)" : null;
-
-            if (ent is Polyline3d p3)
-                return IsZeroOldPolyline(p3) ? "Zero-length geometry (model)" : null;
-
-            return null;
-        }
-
-        private static bool IsZeroOldPolyline(Curve poly)
-        {
-            int vc = 0;
-            if (poly is System.Collections.IEnumerable en)
-                foreach (var _ in en) vc++;
-            if (vc < 2) return true;
-            try
-            {
-                double len = poly.GetDistanceAtParameter(poly.EndParam)
-                           - poly.GetDistanceAtParameter(poly.StartParam);
-                return len < Eps;
-            }
-            catch { return false; }
+            // Tokeny "_"-prefixed = niezależne od języka. "_All"=wszystkie typy,
+            // "*"=wszystkie nazwy, "_No"=bez pytań o każdy obiekt.
+            const string purge = "_-PURGE _All * _No ";
+            doc.SendStringToExecute(purge + purge + purge, true, false, false);
         }
     }
 }
