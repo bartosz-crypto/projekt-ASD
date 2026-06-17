@@ -2609,11 +2609,11 @@ namespace AsdRcSlab
             }
         }
 
-        // === ASD-PRG — Purge / Cleanup (v3, p142) ===
-        // Czyszczenie DELEGOWANE do natywnej komendy AutoCAD -PURGE (bezpieczne:
-        // respektuje viewporty/layouty/plot styles). Estymata read-only → Yes/No
-        // → natywny -PURGE → raport rzeczywisty (różnice PRZED/PO). ZERO ręcznego
-        // Erase — to gwarantuje, że layout/plot nie zostaną uszkodzone.
+        // === ASD-PRG — Purge / Cleanup (v4, p143) ===
+        // GOŁA natywna komenda AutoCAD -PURGE (×3) przez SendStringToExecute —
+        // dokładnie to, co bezpieczny ręczny `-PURGE All * N`. ZERO managed
+        // db.Purge / Erase / transakcji / LockDocument wokół purge. Stempel wersji
+        // na starcie pozwala wykryć, czy załadowała się właściwa (nowa) DLL.
         [CommandMethod("ASD-PRG")]
         public void CmdPurgeCleanup()
         {
@@ -2621,65 +2621,27 @@ namespace AsdRcSlab
             if (doc == null) return;
             var ed = doc.Editor;
 
-            try
+            // a) Stempel wersji.
+            ed.WriteMessage("\n[ASD-PRG] build " + PurgeCleanupService.BuildStamp + "  " +
+                System.DateTime.Now.ToString("yyyy-MM-dd HH:mm") + "\n");
+
+            // b) Proste Yes/No.
+            var ans = System.Windows.MessageBox.Show(
+                "Run full purge (standard AutoCAD PURGE) on this drawing?",
+                "Purge / Cleanup",
+                System.Windows.MessageBoxButton.YesNo,
+                System.Windows.MessageBoxImage.Question);
+            if (ans != System.Windows.MessageBoxResult.Yes)
             {
-                var svc = new PurgeCleanupService();
-
-                // Estymata (read-only — nic nie kasuje).
-                var est = svc.EstimateUnused(doc);
-                if (est.Total == 0)
-                {
-                    ed.WriteMessage("\nPRG: Nothing to purge — drawing is clean.\n");
-                    System.Windows.MessageBox.Show(
-                        "Nothing to purge — drawing is clean.",
-                        "Purge / Cleanup",
-                        System.Windows.MessageBoxButton.OK,
-                        System.Windows.MessageBoxImage.Information);
-                    return;
-                }
-
-                string summary =
-                    "Estimated unused to purge (approx.):\n\n" +
-                    est.BuildSummary() + "\n\n" +
-                    $"  TOTAL (est.): {est.Total}\n\n" +
-                    "Run safe full purge (native -PURGE)?";
-
-                var ans = System.Windows.MessageBox.Show(summary,
-                    "Purge / Cleanup",
-                    System.Windows.MessageBoxButton.YesNo,
-                    System.Windows.MessageBoxImage.Warning);
-                if (ans != System.Windows.MessageBoxResult.Yes)
-                {
-                    ed.WriteMessage("\nPRG: cancelled.\n");
-                    return;
-                }
-
-                // Aplikacja — natywne -PURGE przez SendStringToExecute (ASYNC).
-                // Zero ręcznego Erase. Komenda wykona się po zamknięciu tego dialogu.
-                svc.QueueNativePurge(doc);
-
-                ed.WriteMessage($"\nPRG: native -PURGE started (3 passes). " +
-                    $"Estimated removed (approx) total={est.Total} " +
-                    $"[{string.Join(", ", PurgeReport.Order.Where(c => est.Counts.TryGetValue(c, out var n) && n > 0).Select(c => $"{c}={est.Counts[c]}"))}]\n");
-
-                System.Windows.MessageBox.Show(
-                    "Native -PURGE started (3 passes). Estimated removed (approx):\n\n" +
-                    est.BuildSummary() + "\n\n" +
-                    $"  TOTAL (est.): {est.Total}\n\n" +
-                    "Actual purge runs now on the command line (counts are estimates).\n" +
-                    @"Diag log: %TEMP%\AsdRcSlab-purge-diag.log",
-                    "Purge / Cleanup",
-                    System.Windows.MessageBoxButton.OK,
-                    System.Windows.MessageBoxImage.Information);
+                ed.WriteMessage("\nPRG: cancelled.\n");
+                return;
             }
-            catch (System.Exception ex)
-            {
-                ed.WriteMessage($"\nPRG error: {ex.Message}\n");
-                System.Windows.MessageBox.Show($"Purge error:\n{ex.Message}",
-                    "Purge / Cleanup",
-                    System.Windows.MessageBoxButton.OK,
-                    System.Windows.MessageBoxImage.Error);
-            }
+
+            // c) GOŁY natywny -PURGE ×3 — nic poza tym.
+            PurgeCleanupService.RunNativePurge(doc);
+
+            // d) Info.
+            ed.WriteMessage("\nPRG: native -PURGE started (3 passes) — see command line for details.\n");
         }
     }
 }
