@@ -16,17 +16,19 @@ namespace AsdRcSlab
     {
         // Stempel wersji — wypisywany na starcie komendy, żeby user wiedział, że
         // załadowała się WŁAŚCIWA (nowa) DLL, a nie stara kopia z innego bundla.
-        public const string BuildStamp = "p143";
+        public const string BuildStamp = "p145";
 
-        // "_"-prefixed = niezależne od języka. "_All"=wszystkie typy nazwanych
-        // obiektów, "*"=wszystkie nazwy, "_No"=bez pytań o każdy obiekt.
-        // 3 zagnieżdżone przebiegi: usunięcie bloku zwalnia warstwę/linetyp itd.
-        private const string PurgeOnce = "_-PURGE _All * _No ";
+        // p145: GOŁE tokeny dokładnie jak ręczny `-PURGE All * N`, który u usera
+        // działa. Wariant z podkreślnikami ("_-PURGE _All * _No") urywał się na
+        // "Enter name(s) to purge <*>:" → *Cancel* i purge nie zachodził.
+        // Spacja = Enter; KOŃCOWA spacja = ostatni Enter (verify N).
+        // -PURGE↵ All↵ *↵ N↵  — 1 przebieg (zweryfikowany ręcznie jako bezpieczny).
+        private const string PurgeMacro = "-PURGE All * N ";
 
         public static void RunNativePurge(Document doc)
         {
             if (doc == null) return;
-            doc.SendStringToExecute(PurgeOnce + PurgeOnce + PurgeOnce, true, false, false);
+            doc.SendStringToExecute(PurgeMacro, true, false, false);
         }
     }
 }

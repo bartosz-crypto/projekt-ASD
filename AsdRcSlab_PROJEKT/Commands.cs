@@ -2641,7 +2641,7 @@ namespace AsdRcSlab
             PurgeCleanupService.RunNativePurge(doc);
 
             // d) Info.
-            ed.WriteMessage("\nPRG: native -PURGE started (3 passes) — see command line for details.\n");
+            ed.WriteMessage("\nPRG: native -PURGE started — see command line for details.\n");
         }
     }
 }
