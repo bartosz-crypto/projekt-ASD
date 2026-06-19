@@ -45,7 +45,19 @@ namespace AsdRcSlab
         // ASCII-bezpieczny prefiks warstwy "opis rozkładu_" (rozłączny z "opis kształtu
         // pręta_" — "opis rozk" vs "opis ksz"). NIE wpisywać polskich znaków do literału.
         private const string DistrDescLayerMatch = "AutoCAD_Structural_Detailing_opis rozk";
+        // Angielski odpowiednik tej samej warstwy (pełna nazwa, ASCII). UWAGA: NIE dopasowywać
+        // po samym "distribution" — SDC ma "Bar distribution"; tu wymagana pełna równość nazwy.
+        private const string DistrDescLayerEn = "AutoCAD_Structural_Detailing_Distribution description";
         private const int DistrCircleColor = 18;   // ACI
+
+        // Warstwa kółek "opis rozkładu" — PL (prefiks StartsWith) lub EN (pełna nazwa, równość).
+        private static bool IsDistrDescLayer(string name)
+        {
+            if (string.IsNullOrEmpty(name)) return false;
+            string n = name.Trim();
+            return n.StartsWith(DistrDescLayerMatch, StringComparison.OrdinalIgnoreCase)
+                || n.Equals(DistrDescLayerEn, StringComparison.OrdinalIgnoreCase);
+        }
 
         private static readonly string DiagLogPath =
             Path.Combine(
@@ -197,7 +209,7 @@ namespace AsdRcSlab
             foreach (ObjectId ltrId in lt)
             {
                 var ltr = (LayerTableRecord)tr.GetObject(ltrId, OpenMode.ForRead);
-                if (!ltr.Name.StartsWith(DistrDescLayerMatch, StringComparison.OrdinalIgnoreCase))
+                if (!IsDistrDescLayer(ltr.Name))
                     continue;
                 if (!(ltr.IsLocked || ltr.IsFrozen || ltr.IsOff)) continue;
 
@@ -215,8 +227,7 @@ namespace AsdRcSlab
             {
                 var ent = tr.GetObject(id, OpenMode.ForRead) as Entity;
                 if (ent == null) continue;
-                if (string.IsNullOrEmpty(ent.Layer) ||
-                    !ent.Layer.StartsWith(DistrDescLayerMatch, StringComparison.OrdinalIgnoreCase))
+                if (!IsDistrDescLayer(ent.Layer))
                     continue;
 
                 bool isCircle = false;

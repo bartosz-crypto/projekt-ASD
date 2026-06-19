@@ -853,6 +853,8 @@ namespace AsdRcSlab
 
             try
             {
+                ed.WriteMessage("\n[PXIE] PunchingParser build p157\n");
+
                 // Krok 1: skanuj ploty z arkusza "Punching Report to Calcs"
                 string scanLog;
                 var plots = PunchingParser.ScanPlots(fileDlg.FileName, out scanLog);

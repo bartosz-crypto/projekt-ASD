@@ -49,6 +49,21 @@ namespace AsdRcSlab
         // NIE myl z "opis rozkładu_" (po prefiksie jest 'opis ' przed 'rozk').
         private const string RozkLayerMatch = "AutoCAD_Structural_Detailing_rozk";
         private const string OpisLayerPrefix = "AutoCAD_Structural_Detailing_opis";
+        // Angielski odpowiednik warstwy "rozkład pręta_" (pełna nazwa, ASCII). UWAGA: NIE
+        // dopasowywać po samym "distribution" — XAS ma "Distribution description"; wymagana
+        // pełna równość nazwy.
+        private const string BarDistrLayerEn = "AutoCAD_Structural_Detailing_Bar distribution";
+
+        // Warstwa kółek rozkładu pręta — PL (prefiks 'rozk', NIE 'opis') lub EN (pełna równość).
+        private static bool IsBarDistrLayer(string name)
+        {
+            if (string.IsNullOrEmpty(name)) return false;
+            string n = name.Trim();
+            bool pl = n.StartsWith(RozkLayerMatch, StringComparison.OrdinalIgnoreCase)
+                      && !n.StartsWith(OpisLayerPrefix, StringComparison.OrdinalIgnoreCase);
+            bool en = n.Equals(BarDistrLayerEn, StringComparison.OrdinalIgnoreCase);
+            return pl || en;
+        }
 
         private static readonly HashSet<string> DashedLinetypes =
             new HashSet<string>(StringComparer.OrdinalIgnoreCase)
@@ -132,8 +147,7 @@ namespace AsdRcSlab
                     if (ent is Circle circle)
                     {
                         string lay = circle.Layer ?? "";
-                        if (lay.StartsWith(RozkLayerMatch, StringComparison.OrdinalIgnoreCase) &&
-                            !lay.StartsWith(OpisLayerPrefix, StringComparison.OrdinalIgnoreCase) &&
+                        if (IsBarDistrLayer(lay) &&
                             circle.Radius >= MinRadiusToScale)
                         {
                             circles.Add((id,
@@ -266,8 +280,7 @@ namespace AsdRcSlab
                 foreach (ObjectId ltrId in lt)
                 {
                     var ltr = (LayerTableRecord)tr.GetObject(ltrId, OpenMode.ForRead);
-                    if (!ltr.Name.StartsWith(RozkLayerMatch, StringComparison.OrdinalIgnoreCase) ||
-                        ltr.Name.StartsWith(OpisLayerPrefix, StringComparison.OrdinalIgnoreCase))
+                    if (!IsBarDistrLayer(ltr.Name))
                         continue;
                     if (!(ltr.IsLocked || ltr.IsFrozen || ltr.IsOff)) continue;
 
