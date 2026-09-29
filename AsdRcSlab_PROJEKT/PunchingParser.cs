@@ -1,4 +1,5 @@
 using OfficeOpenXml;
+using OfficeOpenXml.Style;
 using System;
 using System.Collections.Generic;
 using System.IO;
@@ -14,6 +15,14 @@ namespace AsdRcSlab
         private const int    ColPileId = 1;
         private const int    ColUtil   = 17;
         private const int    ColReinf  = 20;
+
+        // p162: granica PŁYTY = komórka kol. A z fill SOLID o kolorze NIEBIESKIM 0D47A1
+        // (zweryfikowane na 3 plikach: kolor występuje WYŁĄCZNIE na nagłówkach płyt).
+        private const string SlabHeaderFillRgb = "0D47A1";
+
+        // Sufiks "(N piles)" w nagłówku płyty — do wyciągnięcia PileCount i oczyszczenia Label.
+        private static readonly Regex _pilesRx = new Regex(
+            @"\(\s*(\d+)\s*piles?\s*\)", RegexOptions.IgnoreCase | RegexOptions.Compiled);
 
         // Nagłówek plotu — separatoro-ODPORNY. "spec" zaczyna się cyfrą i może zawierać
         // cyfry, myślniki (zakresy) oraz separatory ( , ; : / & spacja kropka ).
@@ -55,52 +64,19 @@ namespace AsdRcSlab
                 }
 
                 int lastRow = ws.Dimension?.End.Row ?? 1;
-                PlotInfo current = null;
 
-                for (int r = 1; r <= lastRow; r++)
+                // p162: granica płyty = niebieski (0D47A1) SOLID fill w kol. A — nie słowo "PLOT".
+                ScanByColor(ws, lastRow, plots, sb);
+
+                // FALLBACK 1: raport bez koloru → spróbuj legacy _plotRx (nie ciche mis-parsowanie).
+                if (plots.Count == 0)
                 {
-                    string c1 = ws.Cells[r, ColPileId].GetValue<string>()?.Trim() ?? "";
-                    if (string.IsNullOrEmpty(c1)) continue;
-
-                    var pm = _plotRx.Match(c1);
-                    if (pm.Success)
-                    {
-                        if (current != null) current.EndRow = r - 1;
-                        string spec    = pm.Groups["spec"].Value;
-                        var numbers    = ParsePlotNumbers(spec);
-                        int pileCount  = int.Parse(pm.Groups["count"].Value);
-                        current = new PlotInfo
-                        {
-                            RawHeader   = c1,
-                            Label       = "PLOT " + spec.Trim(),
-                            PlotNumbers = numbers,
-                            PileCount   = pileCount,
-                            StartRow    = r
-                        };
-                        plots.Add(current);
-                        continue;
-                    }
-
-                    if (current != null)
-                    {
-                        var sm = _sectionRx.Match(c1);
-                        if (sm.Success)
-                        {
-                            int cnt = int.TryParse(sm.Groups[2].Value, out int n) ? n : 0;
-                            switch (sm.Groups[1].Value.ToUpperInvariant())
-                            {
-                                case "INTERNAL":  current.InternalCount  += cnt; break;
-                                case "EDGE":      current.EdgeCount      += cnt; break;
-                                case "CORNER":    current.CornerCount    += cnt; break;
-                                case "REENTRANT": current.ReentrantCount += cnt; break;
-                            }
-                        }
-                    }
+                    sb.AppendLine("⚠️ p162: nie znaleziono ŻADNEGO niebieskiego nagłówka płyty " +
+                                  "(fill SOLID 0D47A1 w kol. A). Raport bez koloru? Próbuję legacy _plotRx.");
+                    ScanByPlotRx(ws, lastRow, plots, sb);
                 }
 
-                if (current != null) current.EndRow = lastRow;
-
-                // FALLBACK: brak PLOT N headers → traktuj cały arkusz jako 1 plot
+                // FALLBACK 2: brak jakichkolwiek nagłówków → cały arkusz jako 1 plot.
                 if (plots.Count == 0)
                 {
                     int intCnt = 0, edgeCnt = 0, cornerCnt = 0, reentrantCnt = 0;
@@ -124,7 +100,7 @@ namespace AsdRcSlab
                     {
                         plots.Add(new PlotInfo
                         {
-                            RawHeader       = "SYNTHETIC (no PLOT N header)",
+                            RawHeader       = "SYNTHETIC (no slab header)",
                             Label           = "PLOT 1",
                             PlotNumbers     = new List<int> { 1 },
                             PileCount       = totalPiles,
@@ -135,7 +111,7 @@ namespace AsdRcSlab
                             CornerCount     = cornerCnt,
                             ReentrantCount  = reentrantCnt
                         });
-                        sb.AppendLine($"FALLBACK: brak nagłówków PLOT N — syntetyczny PLOT 1: {totalPiles} pali " +
+                        sb.AppendLine($"FALLBACK: brak nagłówków płyt — syntetyczny PLOT 1: {totalPiles} pali " +
                                       $"(INT:{intCnt} EDGE:{edgeCnt} CORNER:{cornerCnt} REENTRANT:{reentrantCnt}).");
                     }
                 }
@@ -147,11 +123,145 @@ namespace AsdRcSlab
             return plots;
         }
 
+        // p162: skan po KOLORZE — granica płyty = IsSlabHeaderRow (niebieski 0D47A1).
+        // Label = tekst kol. A bez sufiksu "(N piles)"; PileCount z sufiksu; PlotNumbers
+        // best-effort z Label (DOPUSZCZALNE PUSTE dla nazw typu "CARE HOME"). Wiersze przed
+        // pierwszym nagłówkiem = preambuła (pomijane). Sekcje teal akumulują się w bieżącej płycie.
+        private static void ScanByColor(ExcelWorksheet ws, int lastRow, List<PlotInfo> plots, StringBuilder sb)
+        {
+            PlotInfo current = null;
+
+            for (int r = 1; r <= lastRow; r++)
+            {
+                if (IsSlabHeaderRow(ws, r))
+                {
+                    if (current != null) current.EndRow = r - 1;
+                    string c1    = ws.Cells[r, ColPileId].GetValue<string>()?.Trim() ?? "";
+                    string label = StripPilesSuffix(c1);
+                    current = new PlotInfo
+                    {
+                        RawHeader   = c1,
+                        Label       = label,
+                        PlotNumbers = ParsePlotNumbers(label),   // best-effort; może być pusta
+                        PileCount   = ExtractPileCount(c1),
+                        StartRow    = r
+                    };
+                    plots.Add(current);
+                    continue;
+                }
+
+                if (current == null) continue;   // preambuła przed pierwszym nagłówkiem
+
+                string txt = ws.Cells[r, ColPileId].GetValue<string>()?.Trim() ?? "";
+                if (string.IsNullOrEmpty(txt)) continue;
+
+                var sm = _sectionRx.Match(txt);
+                if (sm.Success)
+                {
+                    int cnt = int.TryParse(sm.Groups[2].Value, out int n) ? n : 0;
+                    switch (sm.Groups[1].Value.ToUpperInvariant())
+                    {
+                        case "INTERNAL":  current.InternalCount  += cnt; break;
+                        case "EDGE":      current.EdgeCount      += cnt; break;
+                        case "CORNER":    current.CornerCount    += cnt; break;
+                        case "REENTRANT": current.ReentrantCount += cnt; break;
+                    }
+                }
+            }
+
+            if (current != null) current.EndRow = lastRow;
+        }
+
+        // Legacy: granica po _plotRx (słowo "PLOT N (k piles)"). Fallback gdy brak koloru.
+        private static void ScanByPlotRx(ExcelWorksheet ws, int lastRow, List<PlotInfo> plots, StringBuilder sb)
+        {
+            PlotInfo current = null;
+
+            for (int r = 1; r <= lastRow; r++)
+            {
+                string c1 = ws.Cells[r, ColPileId].GetValue<string>()?.Trim() ?? "";
+                if (string.IsNullOrEmpty(c1)) continue;
+
+                var pm = _plotRx.Match(c1);
+                if (pm.Success)
+                {
+                    if (current != null) current.EndRow = r - 1;
+                    string spec   = pm.Groups["spec"].Value;
+                    current = new PlotInfo
+                    {
+                        RawHeader   = c1,
+                        Label       = "PLOT " + spec.Trim(),
+                        PlotNumbers = ParsePlotNumbers(spec),
+                        PileCount   = int.Parse(pm.Groups["count"].Value),
+                        StartRow    = r
+                    };
+                    plots.Add(current);
+                    continue;
+                }
+
+                if (current == null) continue;
+
+                var sm = _sectionRx.Match(c1);
+                if (sm.Success)
+                {
+                    int cnt = int.TryParse(sm.Groups[2].Value, out int n) ? n : 0;
+                    switch (sm.Groups[1].Value.ToUpperInvariant())
+                    {
+                        case "INTERNAL":  current.InternalCount  += cnt; break;
+                        case "EDGE":      current.EdgeCount      += cnt; break;
+                        case "CORNER":    current.CornerCount    += cnt; break;
+                        case "REENTRANT": current.ReentrantCount += cnt; break;
+                    }
+                }
+            }
+
+            if (current != null) current.EndRow = lastRow;
+        }
+
+        // p162: granica płyty = kol. A ma fill SOLID i RGB kończy się na 0D47A1.
+        // Kolor jest dyskryminatorem (sekcje teal też są scalone+bold). Null/"" Rgb => nie nagłówek.
+        private static bool IsSlabHeaderRow(ExcelWorksheet ws, int r)
+        {
+            var fill = ws.Cells[r, ColPileId].Style.Fill;
+            if (fill.PatternType != ExcelFillStyle.Solid) return false;
+            var rgb = fill.BackgroundColor?.Rgb;            // ARGB, np. "FF0D47A1"/"000D47A1"
+            return !string.IsNullOrEmpty(rgb) && rgb.Length >= 6 &&
+                   rgb.Substring(rgb.Length - 6).Equals(SlabHeaderFillRgb, StringComparison.OrdinalIgnoreCase);
+        }
+
+        private static int ExtractPileCount(string s)
+        {
+            var m = _pilesRx.Match(s ?? "");
+            return m.Success && int.TryParse(m.Groups[1].Value, out int n) ? n : 0;
+        }
+
+        private static string StripPilesSuffix(string s)
+        {
+            if (string.IsNullOrEmpty(s)) return s ?? "";
+            return _pilesRx.Replace(s, "").Trim();
+        }
+
+        // p162: parsowanie wybranego plotu BEZ matchu po Number — czyta wprost po StartRow/EndRow.
+        // Eliminuje kolizję dla płyt bez numerów (np. "CARE HOME PART 1/2" i "...2/2" → oba Number==0).
+        public static List<PileData> ParsePlot(string xlsxPath, PlotInfo plot, out string log)
+        {
+            var sb = new StringBuilder();
+            if (plot == null)
+            {
+                sb.AppendLine("ParsePlot: plot == null.");
+                log = sb.ToString();
+                return new List<PileData>();
+            }
+            var piles = ParsePlotRows(xlsxPath, plot, sb);
+            log = sb.ToString();
+            return piles;
+        }
+
+        // Backward-compat: lookup po Number (FirstPlotNumber). Niebezpieczne dla płyt bez
+        // numerów — preferuj przeciążenie ParsePlot(xlsxPath, PlotInfo, ...).
         public static List<PileData> ParsePlot(string xlsxPath, int plotNumber, out string log)
         {
-            var piles = new List<PileData>();
             var sb    = new StringBuilder();
-
             var plots = ScanPlots(xlsxPath, out var scanLog);
             sb.Append(scanLog);
 
@@ -160,8 +270,18 @@ namespace AsdRcSlab
             {
                 sb.AppendLine($"Brak PLOT {plotNumber} w pliku.");
                 log = sb.ToString();
-                return piles;
+                return new List<PileData>();
             }
+
+            var piles = ParsePlotRows(xlsxPath, plot, sb);
+            log = sb.ToString();
+            return piles;
+        }
+
+        // Wspólne czytanie wierszy danych po zakresie StartRow+1..EndRow (logika bez zmian).
+        private static List<PileData> ParsePlotRows(string xlsxPath, PlotInfo plot, StringBuilder sb)
+        {
+            var piles = new List<PileData>();
 
             using (var pkg = new ExcelPackage(new FileInfo(xlsxPath)))
             {
@@ -172,7 +292,6 @@ namespace AsdRcSlab
                 if (ws == null)
                 {
                     sb.AppendLine($"Brak arkusza '{SheetPunchingReport}'.");
-                    log = sb.ToString();
                     return piles;
                 }
 
@@ -200,7 +319,6 @@ namespace AsdRcSlab
                     {
                         sb.AppendLine("⚠️ Cache formuł pusty nawet po Calculate + manual resolve.");
                         sb.AppendLine("   Otwórz plik w Excelu (Ctrl+S) lub sprawdź czy arkusz źródłowy istnieje.");
-                        log = sb.ToString();
                         return piles;
                     }
                 }
@@ -274,10 +392,9 @@ namespace AsdRcSlab
                 int edgeCnt = piles.Count(p => p.LocationType == "EDGE");
                 int cornCnt = piles.Count(p => p.LocationType == "CORNER");
                 int reeCnt  = piles.Count(p => p.LocationType == "REENTRANT");
-                sb.AppendLine($"ParsePlot {plotNumber}: {piles.Count} pali (INT:{intCnt} EDGE:{edgeCnt} CORNER:{cornCnt} REENTRANT:{reeCnt})");
+                sb.AppendLine($"ParsePlot [{plot.Label}]: {piles.Count} pali (INT:{intCnt} EDGE:{edgeCnt} CORNER:{cornCnt} REENTRANT:{reeCnt})");
             }
 
-            log = sb.ToString();
             return piles;
         }
 

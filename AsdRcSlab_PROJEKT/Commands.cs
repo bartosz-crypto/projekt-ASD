@@ -853,7 +853,7 @@ namespace AsdRcSlab
 
             try
             {
-                ed.WriteMessage("\n[PXIE] PunchingParser build p157\n");
+                ed.WriteMessage("\n[PXIE] PunchingParser build p162 (color-based slab split)\n");
 
                 // Krok 1: skanuj ploty z arkusza "Punching Report to Calcs"
                 string scanLog;
@@ -887,7 +887,7 @@ namespace AsdRcSlab
 
                 // Krok 3: parsuj wybrany plot
                 string parseLog;
-                var piles = PunchingParser.ParsePlot(fileDlg.FileName, selectedPlot.Number, out parseLog);
+                var piles = PunchingParser.ParsePlot(fileDlg.FileName, selectedPlot, out parseLog);
                 ed.WriteMessage($"\n{parseLog}");
 
                 if (piles.Count == 0)
@@ -2395,6 +2395,11 @@ namespace AsdRcSlab
             // 4. WPF dialog z polem Output BBS pre-filled
             string suggestedOutput = BbsXlsGenerator.SuggestBbsName(doc.Name);
             var initial = BbsGenerationContext.BuildInitialFromLayouts(layouts);
+            // p166: domyślny HYSTOOLS = wariant już wpisany w SLAB NOTES rysunku
+            // (ASD-GAI ustawia DK90/DK165 wg grubości płyty). Brak → DK165.
+            string dkInDrawing = DetectHystoolsVariant(doc.Database);
+            if (!string.IsNullOrEmpty(dkInDrawing))
+                initial.HystoolsType = dkInDrawing;
             var dlg = new BbsGeneratorDialog(initial, suggestedOutput);
             var ok = AcApp.ShowModalWindow(AcApp.MainWindow.Handle, dlg, false);
             if (ok != true)
@@ -2432,6 +2437,38 @@ namespace AsdRcSlab
                 ed.WriteMessage("\nERROR: {0}", ex.Message);
             }
         }
+        // p166: szuka "HYSTOOLS DK90/DK165" w MText/DBText wszystkich layoutów + model space.
+        // Toleruje format codes MText między "DK" a liczbą (jak HystoolsRx).
+        // Zwraca "DK90" / "DK165" albo null gdy nie znaleziono.
+        private static string DetectHystoolsVariant(Database db)
+        {
+            var rx = new Regex(@"HYSTOOLS\s+DK(?:\\[A-Za-z][^;]*;)*(90|165)", RegexOptions.IgnoreCase);
+            try
+            {
+                using (var tr = db.TransactionManager.StartTransaction())
+                {
+                    var bt = (BlockTable)tr.GetObject(db.BlockTableId, OpenMode.ForRead);
+                    foreach (ObjectId btrId in bt)
+                    {
+                        var btr = (BlockTableRecord)tr.GetObject(btrId, OpenMode.ForRead);
+                        if (!btr.IsLayout) continue;
+                        foreach (ObjectId id in btr)
+                        {
+                            string raw = null;
+                            var ent = tr.GetObject(id, OpenMode.ForRead);
+                            if (ent is MText mt)       raw = mt.Contents;
+                            else if (ent is DBText dt) raw = dt.TextString;
+                            if (string.IsNullOrEmpty(raw)) continue;
+                            var m = rx.Match(raw);
+                            if (m.Success) return "DK" + m.Groups[1].Value;
+                        }
+                    }
+                }
+            }
+            catch { /* best-effort — dialog i tak pozwala wybrać ręcznie */ }
+            return null;
+        }
+
         private static string BuildBbsOutputPath(string inputPath)
         {
             string dir      = System.IO.Path.GetDirectoryName(inputPath);

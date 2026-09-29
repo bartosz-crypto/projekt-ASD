@@ -14,7 +14,7 @@ namespace AsdRcSlab
         // ASD-ABOUT (NA Engineering) celowo bez ikony - sam tekst + link.
 
         // Wersja dodatku + data builda (z czasu modyfikacji DLL = czas kompilacji).
-        internal const string Version = "4.4";
+        internal const string Version = "4.5";
 
         internal static string BuildStamp()
         {

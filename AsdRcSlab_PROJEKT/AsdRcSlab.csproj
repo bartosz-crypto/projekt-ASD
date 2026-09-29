@@ -1,0 +1,72 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <TargetFramework>net48</TargetFramework>
+    <AssemblyName>AsdRcSlab</AssemblyName>
+    <RootNamespace>AsdRcSlab</RootNamespace>
+    <Nullable>disable</Nullable>
+    <ImplicitUsings>disable</ImplicitUsings>
+    <PlatformTarget>x64</PlatformTarget>
+    <OutputType>Library</OutputType>
+    <AppendTargetFrameworkToOutputPath>false</AppendTargetFrameworkToOutputPath>
+    <OutputPath>bin\Publish\</OutputPath>
+    <UseWPF>true</UseWPF>
+  </PropertyGroup>
+
+  <!-- Referencje AutoCAD .NET API: kompilujemy przeciw NAJSTARSZEJ wspieranej
+       wersji = AutoCAD 2013 (R19.0). Assembly zbudowane przeciw R19.0 laduje sie
+       forward-compatible takze na 2014 (R19.1) i 2015 (R20.0). DLL-e sa w repo
+       w refs\acad2013\ (Private=False - AutoCAD dostarcza je w czasie dzialania). -->
+  <PropertyGroup>
+    <AcadRefDir>$(MSBuildThisFileDirectory)refs\acad2013</AcadRefDir>
+  </PropertyGroup>
+  <ItemGroup>
+    <Reference Include="acmgd">
+      <HintPath>$(AcadRefDir)\acmgd.dll</HintPath>
+      <Private>False</Private>
+    </Reference>
+    <Reference Include="acdbmgd">
+      <HintPath>$(AcadRefDir)\acdbmgd.dll</HintPath>
+      <Private>False</Private>
+    </Reference>
+    <Reference Include="accoremgd">
+      <HintPath>$(AcadRefDir)\accoremgd.dll</HintPath>
+      <Private>False</Private>
+    </Reference>
+    <Reference Include="AdWindows">
+      <HintPath>$(AcadRefDir)\AdWindows.dll</HintPath>
+      <Private>False</Private>
+    </Reference>
+    <Reference Include="AcWindows">
+      <HintPath>$(AcadRefDir)\AcWindows.dll</HintPath>
+      <Private>False</Private>
+    </Reference>
+    <Reference Include="AcCui">
+      <HintPath>$(AcadRefDir)\AcCui.dll</HintPath>
+      <Private>False</Private>
+    </Reference>
+    <Reference Include="PresentationFramework" />
+    <Reference Include="PresentationCore" />
+    <Reference Include="WindowsBase" />
+    <!-- Wymagane przez 'dynamic' (late-binding COM AcadApplication.MenuGroups). -->
+    <Reference Include="Microsoft.CSharp" />
+    <!-- System.Drawing.Bitmap do osadzania ikon w CUIx (Macro.LargeImageBitmap). -->
+    <Reference Include="System.Drawing" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <!-- Ikony ribbon: kopiowane do bin\...\Icons (dev/F5). Bundle kopiuje je
+         dodatkowo do Contents\Icons przez build-bundle.ps1. -->
+    <None Include="icons\*.png">
+      <Link>Icons\%(Filename)%(Extension)</Link>
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </None>
+  </ItemGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Newtonsoft.Json" Version="13.0.3" />
+    <PackageReference Include="EPPlus" Version="4.5.3.3" />
+    <PackageReference Include="NPOI" Version="2.5.6" />
+  </ItemGroup>
+
+</Project>

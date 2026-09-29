@@ -1,0 +1,333 @@
+using OfficeOpenXml;
+using OfficeOpenXml.Style;
+using System;
+using System.Collections.Generic;
+using System.ComponentModel;
+using System.Drawing;
+using System.IO;
+using System.Linq;
+using System.Runtime.CompilerServices;
+using System.Windows;
+using System.Windows.Controls;
+using System.Windows.Threading;
+
+namespace AsdRcSlab
+{
+    public class PileViewModel : INotifyPropertyChanged
+    {
+        public string PileId       { get; set; }
+        public string UtilPctStr   { get; set; }
+        public string LocationType { get; set; }
+        public string DetailTitle  { get; set; }
+
+        private string _phAction;
+        public string PhAction
+        {
+            get => _phAction;
+            set
+            {
+                if (_phAction == value) return;
+                _phAction = value;
+                var pile = SessionData.Piles?.FirstOrDefault(p =>
+                    string.Equals(p.PileId, PileId, StringComparison.OrdinalIgnoreCase));
+                if (pile != null)
+                    pile.PhAction = value;
+                OnPropertyChanged();
+                PhActionChanged?.Invoke(this, EventArgs.Empty);
+            }
+        }
+
+        public static event EventHandler PhActionChanged;
+
+        public event PropertyChangedEventHandler PropertyChanged;
+        private void OnPropertyChanged([CallerMemberName] string name = null)
+            => PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(name));
+    }
+
+    public partial class PhAssignResultsDialog : Window
+    {
+        private readonly List<PileData> _piles;
+        private AnnotationResult _lastResult;
+        public AnnotationResult LastAnnotateResult => _lastResult;
+
+        public PhAssignResultsDialog(List<PileData> piles, bool showUpdateButton = false)
+        {
+            InitializeComponent();
+            _piles = piles;
+
+            BtnUpdateDrawing.Visibility = showUpdateButton
+                ? Visibility.Visible
+                : Visibility.Collapsed;
+
+            Grid.IsReadOnly = !showUpdateButton;
+
+            Populate();
+
+            if (showUpdateButton)
+            {
+                PileViewModel.PhActionChanged += OnPhActionChanged;
+                this.Closed += (s, e) => { PileViewModel.PhActionChanged -= OnPhActionChanged; };
+            }
+        }
+
+        private void OnPhActionChanged(object sender, EventArgs e)
+        {
+            UpdateStats();
+            Grid.Items.Refresh();
+        }
+
+        private void Populate()
+        {
+            var vms = _piles.Select(p => new PileViewModel
+            {
+                PileId       = p.PileId,
+                UtilPctStr   = $"{p.UtilPct:F1}%",
+                LocationType = p.LocationType,
+                PhAction     = p.PhAction,
+                DetailTitle  = p.DetailTitle
+            }).ToList();
+
+            Grid.ItemsSource = vms;
+            UpdateStats();
+        }
+
+        private void UpdateStats()
+        {
+            int total = _piles.Count;
+
+            int CountFor(string ph) => _piles.Count(p =>
+                string.Equals(p.PhAction, ph, StringComparison.OrdinalIgnoreCase));
+
+            int p1 = CountFor("PH1"), p2 = CountFor("PH2"), p3 = CountFor("PH3");
+            int p4 = CountFor("PH4"), p5 = CountFor("PH5"), p6 = CountFor("PH6");
+            int p7 = CountFor("PH7"), p8 = CountFor("PH8"), p9 = CountFor("PH9");
+            int manual = CountFor("MANUAL"), noAct = CountFor("NO ACTION");
+
+            TxtStats.Text =
+                $"Total: {total} piles  |  " +
+                $"PH1:{p1}  PH2:{p2}  PH3:{p3}  " +
+                $"PH4:{p4}  PH5:{p5}  PH6:{p6}  PH7:{p7}  PH8:{p8}  PH9:{p9}  " +
+                $"MANUAL:{manual}  NO ACTION:{noAct}";
+
+            TxtTotals.Text = BuildPhTotalsLine(_piles);
+        }
+
+        // Zwraca sformatowany TOTAL line dla statystyk PH.
+        // Używany w UpdateStats() oraz w Commands.CmdAssignPH MessageBox.
+        internal static string BuildPhTotalsLine(IEnumerable<PileData> piles)
+        {
+            if (piles == null) return "";
+
+            int CountFor(string ph) => piles.Count(p =>
+                string.Equals(p.PhAction, ph, StringComparison.OrdinalIgnoreCase));
+
+            int p1 = CountFor("PH1"), p2 = CountFor("PH2"), p3 = CountFor("PH3");
+            int p4 = CountFor("PH4"), p5 = CountFor("PH5"), p6 = CountFor("PH6");
+            int p7 = CountFor("PH7"), p8 = CountFor("PH8"), p9 = CountFor("PH9");
+
+            int sumH12  = p1 + p2 + p3;
+            int sumH16a = p4 + p5 + p6;
+            int sumH16b = p7 + p8 + p9;
+
+            string h12;
+            if (sumH12 == 0) h12 = "H12: —";
+            else h12 = $"H12: {sumH12}×14 = {sumH12 * 14}";
+
+            string h16;
+            if (sumH16a + sumH16b == 0) h16 = "H16: —";
+            else if (sumH16b == 0) h16 = $"H16: {sumH16a}×14 = {sumH16a * 14}";
+            else if (sumH16a == 0) h16 = $"H16: {sumH16b}×28 = {sumH16b * 28}";
+            else h16 = $"H16: {sumH16a}×14+{sumH16b}×28 = {sumH16a * 14 + sumH16b * 28}";
+
+            return $"TOTAL:  {h12}  |  {h16}";
+        }
+
+        private void BtnUpdateDrawing_Click(object sender, RoutedEventArgs e)
+        {
+            try
+            {
+                var res = DrawingAnnotator.Annotate(SessionData.Piles);
+                _lastResult = res;
+
+                if (res.WrongDrawing)
+                {
+                    MessageBox.Show(
+                        "Active drawing doesn't look like RC SLAB " +
+                        "(missing header 'REINFORCEMENT DETAILS OF SPEEDECK').\n\n" +
+                        "Open the correct RC drawing and try again.",
+                        "Update Drawing",
+                        MessageBoxButton.OK, MessageBoxImage.Warning);
+                    return;
+                }
+
+                string totalsLine = BuildPhTotalsLine(SessionData.Piles);
+                string manualNote = res.ManualPileIds.Count > 0
+                    ? $"\nMANUAL piles ({res.ManualPileIds.Count}): {string.Join(", ", res.ManualPileIds)}\n→ Click point in model space to insert MANUAL text."
+                    : "";
+                string msg =
+                    $"Drawing updated.\n\n" +
+                    $"Labelled piles: {res.Annotated.Count}\n" +
+                    $"Skipped (NO ACTION): {res.Skipped.Count}\n" +
+                    $"Not found: {res.NotFound.Count}\n" +
+                    $"Squares hatched: {res.SquaresHatched}\n" +
+                    $"PH templates (AP-TEXT): {res.PhLabelsUpdated}" +
+                    manualNote + "\n\n" +
+                    totalsLine;
+                MessageBox.Show(msg, "Update Drawing",
+                    MessageBoxButton.OK, MessageBoxImage.Information);
+
+                if (res.ManualPileIds.Count > 0)
+                    this.Close();
+            }
+            catch (Exception ex)
+            {
+                MessageBox.Show(
+                    $"Error updating drawing:\n{ex.Message}",
+                    "Update Drawing",
+                    MessageBoxButton.OK, MessageBoxImage.Error);
+            }
+        }
+
+        private void BtnExport_Click(object sender, RoutedEventArgs e)
+        {
+            var saveDlg = new Microsoft.Win32.SaveFileDialog
+            {
+                Title      = "Zapisz PH Report",
+                Filter     = "Excel (*.xlsx)|*.xlsx",
+                FileName   = $"PH_Report_{SessionData.CurrentProject?.DRWNumber ?? "export"}_{DateTime.Today:yyyyMMdd}.xlsx"
+            };
+            if (saveDlg.ShowDialog() != true) return;
+
+            try
+            {
+                using (var pkg = new ExcelPackage())
+                {
+                    var ws = pkg.Workbook.Worksheets.Add("PH REPORT");
+
+                    string[] headers = { "Pile ID", "Util %", "Location", "PH Action", "Detail Title" };
+                    for (int c = 0; c < headers.Length; c++)
+                    {
+                        ws.Cells[1, c + 1].Value = headers[c];
+                        ws.Cells[1, c + 1].Style.Font.Bold = true;
+                        ws.Cells[1, c + 1].Style.Fill.PatternType = ExcelFillStyle.Solid;
+                        ws.Cells[1, c + 1].Style.Fill.BackgroundColor.SetColor(Color.FromArgb(0x15, 0x65, 0xC0));
+                        ws.Cells[1, c + 1].Style.Font.Color.SetColor(Color.White);
+                    }
+
+                    for (int i = 0; i < _piles.Count; i++)
+                    {
+                        var p = _piles[i];
+                        int row = i + 2;
+                        ws.Cells[row, 1].Value = p.PileId;
+                        ws.Cells[row, 2].Value = $"{p.UtilPct:F1}%";
+                        ws.Cells[row, 3].Value = p.LocationType;
+                        ws.Cells[row, 4].Value = p.PhAction;
+                        ws.Cells[row, 5].Value = p.DetailTitle;
+
+                        Color bg = GetPhColor(p.PhAction);
+                        for (int c = 1; c <= 5; c++)
+                        {
+                            ws.Cells[row, c].Style.Fill.PatternType = ExcelFillStyle.Solid;
+                            ws.Cells[row, c].Style.Fill.BackgroundColor.SetColor(bg);
+                        }
+                    }
+
+                    ws.Cells[ws.Dimension.Address].AutoFitColumns();
+                    pkg.SaveAs(new FileInfo(saveDlg.FileName));
+                }
+
+                MessageBox.Show($"Zapisano: {saveDlg.FileName}", "PH Report",
+                    MessageBoxButton.OK, MessageBoxImage.Information);
+            }
+            catch (Exception ex)
+            {
+                MessageBox.Show($"Export error: {ex.Message}", "Error",
+                    MessageBoxButton.OK, MessageBoxImage.Error);
+            }
+        }
+
+        // p165: JEDNA mapa kolorów PH — używana przez DataGrid (Grid_LoadingRow) i Export to Excel.
+        // Poziomy jak ACI w rysunku (DrawingAnnotator.PhColorIndex): H12@200 zielony,
+        // H16@200 żółty, H16@100 czerwony/różowy. MANUAL = ciemnoczerwony + biały tekst.
+        // NO ACTION / puste = brak koloru (null).
+        private static System.Windows.Media.Color? GetPhRgb(string ph)
+        {
+            switch ((ph ?? "").Trim().ToUpperInvariant())
+            {
+                case "PH1": case "PH2": case "PH3":
+                    return System.Windows.Media.Color.FromRgb(0xE2, 0xEF, 0xDA);   // zielony
+                case "PH4": case "PH5": case "PH6":
+                    return System.Windows.Media.Color.FromRgb(0xFF, 0xF2, 0xCC);   // żółty
+                case "PH7": case "PH8": case "PH9":
+                    return System.Windows.Media.Color.FromRgb(0xFC, 0xE4, 0xEC);   // różowy
+                case "MANUAL":
+                    return System.Windows.Media.Color.FromRgb(0xB7, 0x1C, 0x1C);   // ciemnoczerwony
+                default:
+                    return null;                                                   // NO ACTION
+            }
+        }
+
+        private static readonly Dictionary<System.Windows.Media.Color, System.Windows.Media.SolidColorBrush>
+            _brushCache = new Dictionary<System.Windows.Media.Color, System.Windows.Media.SolidColorBrush>();
+
+        private static System.Windows.Media.SolidColorBrush BrushFor(System.Windows.Media.Color c)
+        {
+            if (!_brushCache.TryGetValue(c, out var b))
+            {
+                b = new System.Windows.Media.SolidColorBrush(c);
+                b.Freeze();
+                _brushCache[c] = b;
+            }
+            return b;
+        }
+
+        private void Grid_LoadingRow(object sender, DataGridRowEventArgs e)
+        {
+            var vm = e.Row.Item as PileViewModel;
+            if (vm == null) return;
+
+            // Wartość lokalna (z code) ma priorytet nad koercją AlternatingRowBackground
+            // i nad XAML Style Triggers — dlatego kolorujemy tutaj, dla WSZYSTKICH PH.
+            var rgb = GetPhRgb(vm.PhAction);
+            if (rgb.HasValue)
+            {
+                e.Row.Background = BrushFor(rgb.Value);
+                if (string.Equals(vm.PhAction, "MANUAL", StringComparison.OrdinalIgnoreCase))
+                    e.Row.Foreground = System.Windows.Media.Brushes.White;
+                else
+                    e.Row.ClearValue(DataGridRow.ForegroundProperty);
+            }
+            else
+            {
+                e.Row.ClearValue(DataGridRow.BackgroundProperty);
+                e.Row.ClearValue(DataGridRow.ForegroundProperty);
+            }
+        }
+
+        private void Grid_CellEditEnding(object sender, DataGridCellEditEndingEventArgs e)
+        {
+            if (e.EditAction != DataGridEditAction.Commit) return;
+
+            // Brute-force: nullify+set ItemsSource wymusza pelny rebuild DataGrid.
+            // Items.Refresh() + INPC nie wystarczaly (DataTrigger Background nie
+            // odpalal sie wybiorczo - WPF style hierarchy quirk). Trade-off:
+            // tracimy biezaca selekcje po edycji - akceptowalne.
+            Dispatcher.BeginInvoke(new Action(() =>
+            {
+                var src = Grid.ItemsSource;
+                Grid.ItemsSource = null;
+                Grid.ItemsSource = src;
+                UpdateStats();
+            }), DispatcherPriority.Background);
+        }
+
+        // Excel (System.Drawing) — te same kolory co w DataGrid; NO ACTION = biały.
+        private static Color GetPhColor(string ph)
+        {
+            var rgb = GetPhRgb(ph);
+            return rgb.HasValue
+                ? Color.FromArgb(rgb.Value.R, rgb.Value.G, rgb.Value.B)
+                : Color.White;
+        }
+    }
+}

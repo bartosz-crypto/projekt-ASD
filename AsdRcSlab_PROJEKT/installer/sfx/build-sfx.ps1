@@ -1,4 +1,6 @@
-# Buduje SFX installer dist\AsdRcSlab_Setup_2026.05.exe z dist\AsdRcSlab.bundle.
+# Buduje SFX installer dist\AsdRcSlab_Setup_<Version>.exe z dist\AsdRcSlab.bundle.
+# p165: wersja jako parametr (domyslnie = build-bundle.ps1), zamiast hardcode 2026.05.
+param([string]$Version = "2026.09")
 # KLUCZOWE (p144): czysci staged folder ORAZ usuwa stary exe przed budowa —
 # WinRAR 'a' DOPISUJE do istniejacego archiwum, wiec stary (zagniezdzony) exe
 # zostawialby duplikaty -> AsdRcSlab.bundle\AsdRcSlab.bundle. Zawsze od zera.
@@ -7,7 +9,7 @@ $root   = Split-Path (Split-Path $PSScriptRoot -Parent) -Parent   # ...\AsdRcSla
 $sfx    = $PSScriptRoot
 $src    = Join-Path $root 'dist\AsdRcSlab.bundle'
 $staged = Join-Path $sfx  'AsdRcSlab.bundle'
-$exe    = Join-Path $root 'dist\AsdRcSlab_Setup_2026.05.exe'
+$exe    = Join-Path $root "dist\AsdRcSlab_Setup_$Version.exe"
 $winrar = 'C:\Program Files\WinRAR\WinRAR.exe'
 
 if (-not (Test-Path $src)) { throw "Source bundle missing: $src (run build-bundle.ps1 first)" }
