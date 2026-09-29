@@ -51,6 +51,14 @@ namespace AsdRcSlab
             TricTrakQtyBox.Text = initial.TricTrakQty ?? "";
             HystoolsQtyBox.Text = initial.HystoolsQty ?? "";
             UpdateAccessoryPreview();
+
+            // p167: info o źródle proponowanej ilości (edytowalna normalnie)
+            int? sugg = BbsGenerationContext.SuggestAccessoryQty(initial.SlabAreaM2);
+            AccessoryHint.Text = sugg.HasValue
+                ? string.Format(System.Globalization.CultureInfo.InvariantCulture,
+                    "Suggested {0} pcs from SLAB AREA = {1:0.0} m² (1 pc / 2 m² + 10%) — edit if needed.",
+                    sugg.Value, initial.SlabAreaM2.Value)
+                : "SLAB AREA not found in drawing — enter quantities manually.";
         }
 
         private static void SelectComboByText(

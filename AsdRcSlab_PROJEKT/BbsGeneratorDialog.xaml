@@ -2,7 +2,7 @@
         xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
         Title="Generate BBS"
-        Width="700" Height="660"
+        Width="700" Height="680"
         WindowStartupLocation="CenterOwner">
     <Grid Margin="10">
         <Grid.RowDefinitions>
@@ -49,6 +49,7 @@
         <!-- Title block fields -->
         <Grid Grid.Row="2" Margin="0,10,0,10">
             <Grid.RowDefinitions>
+                <RowDefinition Height="Auto"/>
                 <RowDefinition Height="Auto"/>
                 <RowDefinition Height="Auto"/>
                 <RowDefinition Height="Auto"/>
@@ -138,6 +139,11 @@
                 <TextBlock x:Name="HystoolsPreview" VerticalAlignment="Center"
                            Margin="16,0,0,0" Foreground="Gray"/>
             </StackPanel>
+
+            <!-- p167: skąd wzięła się proponowana ilość -->
+            <TextBlock Grid.Row="9" Grid.Column="1" x:Name="AccessoryHint"
+                       Margin="0,2,0,0" FontStyle="Italic" Foreground="Gray"
+                       TextWrapping="Wrap"/>
         </Grid>
 
         <!-- Buttons -->

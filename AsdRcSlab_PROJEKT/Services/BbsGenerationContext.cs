@@ -1,3 +1,4 @@
+using System;
 using System.Collections.Generic;
 using System.Linq;
 
@@ -60,6 +61,26 @@ namespace AsdRcSlab
         public string TricTrakQty  { get; set; } = "";
         public string HystoolsType { get; set; } = "DK165";  // DK90 / DK165
         public string HystoolsQty  { get; set; } = "";
+
+        // p167: powierzchnia płyty z SLAB NOTES rysunku (null = nie znaleziono).
+        public double? SlabAreaM2  { get; set; }
+
+        // p167: ta sama reguła co BS8666_Calculator 'HyStool Calculator' (C19..C21, I39/J39):
+        //   net   = area / (2 × spacing), spacing = 1 m (jeden kierunek)
+        //   total = ROUNDUP(net × (1 + allowance), 0), allowance = 10 %
+        // Obowiązuje dla HyStool i TRIC-TRAK (arkusz liczy obie z tego samego wzoru).
+        public const double AccessorySpacingM   = 1.0;
+        public const double AccessoryAllowance  = 0.10;
+
+        public static int? SuggestAccessoryQty(double? areaM2)
+        {
+            if (!areaM2.HasValue || areaM2.Value <= 0) return null;
+            double net   = areaM2.Value / (2.0 * AccessorySpacingM);
+            double total = net * (1.0 + AccessoryAllowance);
+            // Round przed Ceiling: 100/2*1.1 = 55.000000000000007 → bez tego wyszłoby 56
+            // (Excel ROUNDUP liczy na 15 cyfrach znaczących, więc daje 55).
+            return (int)Math.Ceiling(Math.Round(total, 9));
+        }
 
         /// <summary>"TRIC-TRAK TT40 52No. X 2m" (bez ilości: "TRIC-TRAK TT40 No. X 2m").</summary>
         public string BuildTricTrakLine()

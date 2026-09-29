@@ -2400,6 +2400,46 @@ namespace AsdRcSlab
             string dkInDrawing = DetectHystoolsVariant(doc.Database);
             if (!string.IsNullOrEmpty(dkInDrawing))
                 initial.HystoolsType = dkInDrawing;
+
+            // p167: SLAB NOTES (SLAB AREA / THICKNESS) → proponowana ilość HyStool/TRIC-TRAK
+            // (wzór jak w BS8666_Calculator) + fallback DK z grubości gdy brak tekstu HYSTOOLS.
+            try
+            {
+                // p167b: RC SLAB NOTES mają format "SLAB AREA = 130.86 [m²]" (nawias kwadratowy),
+                // a SlabAreaExtractRx (GA) wymaga "m" zaraz po liczbie → tu luźniejszy odczyt.
+                string areaStr = ReadSlabNoteNumber(doc.Database, "SLAB AREA");
+                string thStr   = ReadSlabNoteNumber(doc.Database, "SLAB THICKNESS");
+                if (areaStr != null &&
+                    double.TryParse(areaStr, System.Globalization.NumberStyles.Float,
+                                    System.Globalization.CultureInfo.InvariantCulture, out double areaM2))
+                {
+                    initial.SlabAreaM2 = areaM2;
+                    int? q = BbsGenerationContext.SuggestAccessoryQty(areaM2);
+                    if (q.HasValue)
+                    {
+                        initial.TricTrakQty = q.Value.ToString();
+                        initial.HystoolsQty = q.Value.ToString();
+                    }
+                    ed.WriteMessage("\n[BBS] SLAB AREA = {0} m2 -> suggested HyStool/TRIC-TRAK: {1}",
+                        areaStr, q?.ToString() ?? "-");
+                }
+                else
+                {
+                    ed.WriteMessage("\n[BBS] SLAB AREA not found in SLAB NOTES - enter quantities manually.");
+                }
+
+                if (string.IsNullOrEmpty(dkInDrawing) &&
+                    thStr != null &&
+                    int.TryParse(thStr.Split('.')[0], out int thMm))
+                {
+                    if (thMm == 225) initial.HystoolsType = "DK90";
+                    else if (thMm == 300) initial.HystoolsType = "DK165";
+                }
+            }
+            catch (System.Exception exSlab)
+            {
+                ed.WriteMessage("\n[BBS] SLAB NOTES read failed: {0}", exSlab.Message);
+            }
             var dlg = new BbsGeneratorDialog(initial, suggestedOutput);
             var ok = AcApp.ShowModalWindow(AcApp.MainWindow.Handle, dlg, false);
             if (ok != true)
@@ -2466,6 +2506,40 @@ namespace AsdRcSlab
                 }
             }
             catch { /* best-effort — dialog i tak pozwala wybrać ręcznie */ }
+            return null;
+        }
+
+        // p167b: liczba po "<label> =" w MText/DBText layoutów (paper space), np.
+        //   "5.^ISLAB AREA = 130.86 [m{\\H0.7x;\\S2^ ;...]"  → "130.86"
+        //   "SLAB THICKNESS  = 225 [mm] U.N.O."                  → "225"
+        // Toleruje nawiasy/format codes PO liczbie. Pierwsze trafienie wygrywa
+        // (SLAB NOTES są kopiowane na każdy layout RC z tą samą wartością).
+        private static string ReadSlabNoteNumber(Database db, string label)
+        {
+            var rx = new Regex(Regex.Escape(label).Replace(@"\ ", @"\s+") + @"\s*=\s*(\d+(?:\.\d+)?)",
+                               RegexOptions.IgnoreCase);
+            try
+            {
+                using (var tr = db.TransactionManager.StartTransaction())
+                {
+                    var layoutDict = (DBDictionary)tr.GetObject(db.LayoutDictionaryId, OpenMode.ForRead);
+                    foreach (DBDictionaryEntry entry in layoutDict)
+                    {
+                        var layout = tr.GetObject(entry.Value, OpenMode.ForRead) as Layout;
+                        if (layout == null) continue;
+                        var btr = (BlockTableRecord)tr.GetObject(layout.BlockTableRecordId, OpenMode.ForRead);
+                        foreach (ObjectId id in btr)
+                        {
+                            var ent = tr.GetObject(id, OpenMode.ForRead);
+                            string raw = (ent as MText)?.Contents ?? (ent as DBText)?.TextString;
+                            if (string.IsNullOrEmpty(raw)) continue;
+                            var m = rx.Match(raw);
+                            if (m.Success) return m.Groups[1].Value;
+                        }
+                    }
+                }
+            }
+            catch { /* best-effort */ }
             return null;
         }
 
